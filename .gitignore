@@ -32,3 +32,12 @@ exports/
 
 # Models
 models/
+
+.venv/
+__pycache__/
+*.pyc
+.vscode/
+.idea/
+logs/
+cache/
+exports/
