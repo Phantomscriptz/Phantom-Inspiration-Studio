@@ -1,0 +1,50 @@
+{
+  "title": "They say it's the most haunted lighthouse in the world.",
+  "description": "",
+  "niche": "scary_stories",
+  "format": "short_form",
+  "total_duration_seconds": 27,
+  "hook": "They say it's the most haunted lighthouse in the world.",
+  "cta": "What secrets hide within its walls? Follow us to find out more!",
+  "tags": [],
+  "hashtags": [
+    "#scary",
+    "#horror",
+    "#scarystory",
+    "#darkstories",
+    "#nightmares",
+    "#creepy",
+    "#horrorcommunity"
+  ],
+  "segments": [
+    {
+      "scene_number": 1,
+      "narration": "Lone beam of light pierces darkness.",
+      "image_prompt": "A solitary lighthouse beam cutting through dense fog, waves crashing against rocky shore, moonlight barely visible above clouds.",
+      "duration_seconds": 7,
+      "transition": "cut"
+    },
+    {
+      "scene_number": 2,
+      "narration": "Whispers... constant. Silent.",
+      "image_prompt": "Close-up on flickering lighthouse light, shadows moving within beam, mysterious whispers barely audible, moonlight casting eerie patterns on walls inside the lighthouse.",
+      "duration_seconds": 7,
+      "transition": "cut"
+    },
+    {
+      "scene_number": 3,
+      "narration": "No one left alive.",
+      "image_prompt": "Dark, abandoned lighthouse interior with broken windows and scattered debris, old maps and papers covered in water stains, doors creaking softly as wind howls outside.",
+      "duration_seconds": 7,
+      "transition": "cut"
+    },
+    {
+      "scene_number": 4,
+      "narration": "Why do they stay?",
+      "image_prompt": "Fog swirled around the lighthouse, a figure seen briefly in the distance running towards it, then vanishing, strange symbols etched into ancient stone.",
+      "duration_seconds": 6,
+      "transition": "fade out"
+    }
+  ],
+  "created_at": "2026-07-14T19:22:41.791352"
+}
