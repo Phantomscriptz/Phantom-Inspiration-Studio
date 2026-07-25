@@ -1,106 +1,175 @@
 from PySide6.QtWidgets import (
-    QLabel,
-    QPushButton,
-    QFrame,
-    QVBoxLayout,
-    QGridLayout,
-    QWidget,
+    QLabel, QPushButton, QFrame, QVBoxLayout, QHBoxLayout,
+    QWidget, QStackedWidget, QScrollArea,
 )
+from PySide6.QtCore import Qt, Signal
+
+from app.gui.widgets.control_bar import ControlBar
+from app.gui.widgets.platform_tabs import PlatformTabs
+from app.gui.widgets.content_settings import ContentSettingsPanel
+from app.gui.widgets.affiliate_panel import AffiliatePanel
+from app.gui.widgets.log_panel import LogPanel
+from app.config.settings import SettingsManager
+
+
+class StatCard(QFrame):
+    """A single stat card showing a metric."""
+
+    def __init__(self, title: str, value: str = "0", icon: str = "", parent=None):
+        super().__init__(parent)
+        self.setFixedHeight(56)
+        self.setStyleSheet("""
+            QFrame {
+                border-radius: 8px;
+                padding: 6px 12px;
+                background: #2D2D30;
+                border: 1px solid #3a3a3d;
+            }
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setSpacing(8)
+        layout.setContentsMargins(12, 4, 12, 4)
+
+        self.icon_label = QLabel(icon)
+        self.icon_label.setStyleSheet("font-size: 16px;")
+        layout.addWidget(self.icon_label)
+
+        info = QVBoxLayout()
+        info.setSpacing(0)
+        info.setContentsMargins(0, 0, 0, 0)
+
+        self.title_label = QLabel(title)
+        self.title_label.setStyleSheet("font-size: 10px; color: #888;")
+        info.addWidget(self.title_label)
+
+        self.value_label = QLabel(value)
+        self.value_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #fff;")
+        info.addWidget(self.value_label)
+
+        layout.addLayout(info, 1)
+
+    def set_value(self, value: str):
+        self.value_label.setText(value)
+
+
+# Tab button style constants
+_TAB_BTN_STYLE = """
+    QPushButton {
+        background: #2d2d30;
+        color: #888;
+        border: 1px solid #3a3a3d;
+        border-radius: 8px;
+        padding: 10px 20px;
+        font-size: 13px;
+    }
+    QPushButton:hover {
+        background: #3a3a3d;
+        color: #ccc;
+    }
+    QPushButton:checked {
+        background: #3b82f6;
+        color: white;
+        border-color: #3b82f6;
+    }
+"""
 
 
 class Dashboard(QWidget):
+    """Main dashboard — the only screen that matters."""
 
-    def __init__(self):
+    start_automation = Signal()
+    stop_automation = Signal()
 
+    def __init__(self, settings: SettingsManager = None):
         super().__init__()
+        self.settings = settings or SettingsManager()
 
         layout = QVBoxLayout(self)
+        layout.setSpacing(6)
+        layout.setContentsMargins(16, 8, 16, 8)
 
-        title = QLabel("Welcome to Phantom Inspiration Studio")
+        # ── Tab Buttons (top — always visible) ──
+        self._tab_buttons: list[QPushButton] = []
+        tab_layout = QHBoxLayout()
+        tab_layout.setSpacing(4)
+        tab_layout.setContentsMargins(0, 0, 0, 4)
 
-        title.setStyleSheet("""
-
-            font-size:28px;
-            font-weight:bold;
-
-        """)
-
-        layout.addWidget(title)
-
-        grid = QGridLayout()
-
-        layout.addLayout(grid)
-
-        cards = [
-
-            ("Projects", "0"),
-
-            ("Videos Rendered", "0"),
-
-            ("Scheduled", "0"),
-
-            ("Published", "0"),
-
+        tabs = [
+            ("⚙  Content", 0),
+            ("🌐  Platforms", 1),
+            ("💰  Affiliates", 2),
+            ("📋  Log", 3),
         ]
 
-        row = 0
+        for text, idx in tabs:
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setMinimumHeight(34)
+            btn.setStyleSheet(_TAB_BTN_STYLE)
+            btn.clicked.connect(lambda checked, i=idx: self._switch_tab(i))
+            tab_layout.addWidget(btn)
+            self._tab_buttons.append(btn)
 
-        col = 0
+        tab_layout.addStretch()
+        layout.addLayout(tab_layout)
 
-        for name, value in cards:
+        # ── Stacked content (one tab at a time) ──
+        self.tab_stack = QStackedWidget()
 
-            frame = QFrame()
+        self.content_settings = ContentSettingsPanel(self.settings)
+        self.tab_stack.addWidget(self.content_settings)         # index 0
 
-            frame.setStyleSheet("""
+        self.platform_tabs = PlatformTabs(self.settings)
+        self.tab_stack.addWidget(self.platform_tabs)            # index 1
 
-                QFrame{
+        self.affiliate_panel = AffiliatePanel(self.settings)
+        scroll = QScrollArea()
+        scroll.setWidget(self.affiliate_panel)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self.tab_stack.addWidget(scroll)                        # index 2
 
-                    border-radius:12px;
+        self.log_panel = LogPanel()
+        self.tab_stack.addWidget(self.log_panel)                # index 3
 
-                    padding:18px;
+        layout.addWidget(self.tab_stack, 1)
 
-                    background:#2D2D30;
+        # ── Control Bar (bottom — always visible) ──
+        self.control_bar = ControlBar()
+        layout.addWidget(self.control_bar)
 
-                }
+        # ── Stats Row (bottom — compact) ──
+        stats_layout = QHBoxLayout()
+        stats_layout.setSpacing(6)
+        self.stats_cards = {}
+        for key, icon, name, val in [
+            ("videos_today", "📹", "Today", "0"),
+            ("videos_total", "🎬", "Total", "0"),
+            ("uploaded", "📤", "Uploaded", "0"),
+            ("errors", "⚠️", "Errors", "0"),
+        ]:
+            card = StatCard(name, val, icon)
+            stats_layout.addWidget(card, 1)
+            self.stats_cards[key] = card
+        layout.addLayout(stats_layout)
 
-            """)
+        # Activate first tab
+        self._switch_tab(0)
 
-            card = QVBoxLayout(frame)
+    def _switch_tab(self, index: int):
+        """Switch to tab `index` and make only that button checked."""
+        self.tab_stack.setCurrentIndex(index)
+        for i, btn in enumerate(self._tab_buttons):
+            btn.setChecked(i == index)
 
-            label = QLabel(name)
+    def log(self, message: str):
+        self.log_panel.log(message)
 
-            label.setStyleSheet("font-size:16px;")
+    def update_stat(self, key: str, value: str):
+        if key in self.stats_cards:
+            self.stats_cards[key].set_value(value)
 
-            number = QLabel(value)
-
-            number.setStyleSheet("""
-
-                font-size:32px;
-
-                font-weight:bold;
-
-            """)
-
-            card.addWidget(label)
-
-            card.addWidget(number)
-
-            grid.addWidget(frame, row, col)
-
-            col += 1
-
-            if col == 2:
-
-                row += 1
-
-                col = 0
-
-        layout.addSpacing(20)
-
-        generate = QPushButton("🚀 Generate New Project")
-
-        generate.setMinimumHeight(50)
-
-        layout.addWidget(generate)
-
-        layout.addStretch()
+    def save_settings(self):
+        self.content_settings.save()
+        self.platform_tabs.save_all()
