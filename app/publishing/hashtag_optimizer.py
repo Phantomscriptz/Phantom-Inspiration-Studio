@@ -1,8 +1,7 @@
 """Platform-specific hashtag & metadata optimizer.
 
-Ensures each platform gets the MAXIMUM allowed hashtags with the
-best-performing tags for the niche. Research-backed hashtag limits
-and strategies per platform.
+Uses relevant, platform-appropriate metadata. Hashtags are optional support
+for discoverability, not a substitute for a useful original video.
 """
 
 from typing import Optional
@@ -31,9 +30,9 @@ PLATFORM_HASHTAG_LIMITS = {
         "description_format": "inline_with_caption",  # In the caption
         "title_hashtags": 0,
         "notes": [
-            "TikTok: 3-5 hashtags is optimal for the algorithm",
-            "Mix trending + niche + broad hashtags",
-            "#fyp #foryou #viral still work as boosters",
+            "Use a small set of directly relevant hashtags",
+            "Mix specific subject tags with a broader category tag",
+            "Do not use generic tags merely to chase reach",
             "Use TikTok's Creative Center to find trending hashtags",
         ],
     },
@@ -132,7 +131,7 @@ NICHE_HASHTAG_BANKS = {
     "motivational": {
         "broad": ["#motivation", "#success", "#life", "#goals", "#inspiration"],
         "niche": ["#stoicism", "#mindset", "#discipline", "#grindset",
-                  "#selfimprovement", "#philosophy", "#marcus Aurelius", "#raremindset"],
+                  "#selfimprovement", "#philosophy", "#resilience", "#habits"],
         "engagement": ["#grind", "#hustle", "#neverquit", "#warriormindset"],
     },
     "finance": {
@@ -255,6 +254,7 @@ class HashtagOptimizer:
 
         Returns dict with: title, description, hashtags, hashtag_string, tags
         """
+        platform = self._normalize_platform(platform)
         limits = PLATFORM_HASHTAG_LIMITS.get(platform, PLATFORM_HASHTAG_LIMITS["youtube"])
         max_tags = limits["max_hashtags"]
         optimal_min, optimal_max = limits["optimal_range"]
@@ -311,11 +311,15 @@ class HashtagOptimizer:
 
     def get_max_hashtags(self, platform: str) -> int:
         """Get the maximum allowed hashtags for a platform."""
-        return PLATFORM_HASHTAG_LIMITS.get(platform, {}).get("max_hashtags", 0)
+        return PLATFORM_HASHTAG_LIMITS.get(self._normalize_platform(platform), {}).get("max_hashtags", 0)
 
     def get_platform_rules(self, platform: str) -> dict:
         """Get full platform hashtag rules."""
-        return PLATFORM_HASHTAG_LIMITS.get(platform, {})
+        return PLATFORM_HASHTAG_LIMITS.get(self._normalize_platform(platform), {})
+
+    @staticmethod
+    def _normalize_platform(platform: str) -> str:
+        return "youtube" if platform in {"youtube_long", "youtube_shorts"} else platform
 
     def _build_description(
         self,

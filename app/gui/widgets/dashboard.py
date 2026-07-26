@@ -81,7 +81,7 @@ class Dashboard(QWidget):
     start_automation = Signal()
     stop_automation = Signal()
 
-    def __init__(self, settings: SettingsManager = None):
+    def __init__(self, settings: SettingsManager = None, model_manager=None):
         super().__init__()
         self.settings = settings or SettingsManager()
 
@@ -117,7 +117,7 @@ class Dashboard(QWidget):
         # ── Stacked content (one tab at a time) ──
         self.tab_stack = QStackedWidget()
 
-        self.content_settings = ContentSettingsPanel(self.settings)
+        self.content_settings = ContentSettingsPanel(self.settings, model_manager)
         self.tab_stack.addWidget(self.content_settings)         # index 0
 
         self.platform_tabs = PlatformTabs(self.settings)
@@ -133,26 +133,23 @@ class Dashboard(QWidget):
         self.log_panel = LogPanel()
         self.tab_stack.addWidget(self.log_panel)                # index 3
 
-        layout.addWidget(self.tab_stack, 1)
+        # The configuration panels can exceed a laptop-sized window.  Keep the
+        # start controls visible and make only the active content area scroll.
+        content_scroll = QScrollArea()
+        content_scroll.setWidget(self.tab_stack)
+        content_scroll.setWidgetResizable(True)
+        content_scroll.setFrameShape(QFrame.NoFrame)
+        content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        content_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        layout.addWidget(content_scroll, 1)
 
         # ── Control Bar (bottom — always visible) ──
         self.control_bar = ControlBar()
         layout.addWidget(self.control_bar)
 
-        # ── Stats Row (bottom — compact) ──
-        stats_layout = QHBoxLayout()
-        stats_layout.setSpacing(6)
+        # The former four cards repeated information already shown in the
+        # control bar and rendered poorly at smaller window heights.
         self.stats_cards = {}
-        for key, icon, name, val in [
-            ("videos_today", "📹", "Today", "0"),
-            ("videos_total", "🎬", "Total", "0"),
-            ("uploaded", "📤", "Uploaded", "0"),
-            ("errors", "⚠️", "Errors", "0"),
-        ]:
-            card = StatCard(name, val, icon)
-            stats_layout.addWidget(card, 1)
-            self.stats_cards[key] = card
-        layout.addLayout(stats_layout)
 
         # Activate first tab
         self._switch_tab(0)

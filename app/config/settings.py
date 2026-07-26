@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import os
 from typing import Optional
 
 
@@ -22,6 +23,7 @@ class SettingsManager:
             "video_format": "short",          # short or long
             "short_duration": 60,             # seconds
             "long_duration": 10,              # minutes
+            "youtube_shorts_niche": "motivational",
             "language": "en",
 
             # Video quality
@@ -44,14 +46,15 @@ class SettingsManager:
             "local_sd_url": "http://127.0.0.1:7860",
 
             # Automation
-            "max_videos_per_run": 0,          # 0 = unlimited
-            "gap_between_videos_min": 30,     # seconds
-            "gap_between_videos_max": 120,    # seconds
+            "max_videos_per_run": 1,          # require deliberate scaling
+            "gap_between_videos_min": 7200,   # seconds (2 hours)
+            "gap_between_videos_max": 7200,   # seconds (2 hours)
             "auto_start": False,
 
             # Platform daily limits (overrides rate_limiter defaults)
             "platform_limits": {
-                "youtube": {"enabled": True, "max_per_day": 3},
+                "youtube_long": {"enabled": False, "max_per_day": 1},
+                "youtube_shorts": {"enabled": False, "max_per_day": 1},
                 "tiktok": {"enabled": True, "max_per_day": 4},
                 "instagram": {"enabled": False, "max_per_day": 3},
                 "x_twitter": {"enabled": False, "max_per_day": 5},
@@ -84,10 +87,8 @@ class SettingsManager:
                 },
             },
 
-            # Anti-detection
-            "humanize_behavior": True,
-            "randomize_upload_times": True,
-            "rest_days_enabled": True,
+            # Publishing controls
+            "require_review_before_publish": True,
         }
 
         self.settings = {}
@@ -101,6 +102,13 @@ class SettingsManager:
 
         with open(self.settings_path, "r") as f:
             loaded = json.load(f)
+
+        # Migrate the former single YouTube destination into long-form. Shorts
+        # require an explicit opt-in because they are a separate workflow.
+        limits = loaded.get("platform_limits", {})
+        legacy_youtube = limits.pop("youtube", None)
+        if legacy_youtube and "youtube_long" not in limits:
+            limits["youtube_long"] = legacy_youtube
 
         # Merge with defaults so new keys are always present
         self.settings = self.defaults.copy()
@@ -164,11 +172,40 @@ class SettingsManager:
             "long_duration": self.get("long_duration"),
             "ollama_model": self.get("ollama_model"),
             "voice_selected": self.get("voice_selected", "random"),
+            "youtube_shorts_niche": self.get("youtube_shorts_niche", "motivational"),
+            "require_review_before_publish": self.get("require_review_before_publish", True),
             "max_videos_per_run": self.get("max_videos_per_run"),
             "gap_between_videos_min": self.get("gap_between_videos_min"),
             "gap_between_videos_max": self.get("gap_between_videos_max"),
             "enabled_platforms": self.get_enabled_platforms(),
+            "platform_limits": self.get("platform_limits", {}),
+            "affiliate_links": self.get_affiliate_links(),
         }
+
+    def reset_user_preferences(self):
+        """Reset safe, user-editable choices without touching credentials or affiliates."""
+        keys = {
+            "niche", "topic", "video_format", "short_duration", "long_duration",
+            "youtube_shorts_niche", "language", "resolution", "fps", "video_codec",
+            "crf", "ollama_model", "script_temperature", "voice_selected",
+            "image_provider", "local_sd_url", "max_videos_per_run",
+            "gap_between_videos_min", "gap_between_videos_max", "auto_start",
+            "require_review_before_publish",
+        }
+        for key in keys:
+            self.settings[key] = self.defaults[key]
+        self.settings.pop("selected_niches", None)
+        self.settings.pop("randomize_niches", None)
+        self.save()
+
+    def clear_temporary_runtime_state(self):
+        """Clear only known temporary state files; never delete user content."""
+        for filename in ("automation_state.json", "pending_jobs.json", "last_run.json"):
+            path = Path("cache") / filename
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     @staticmethod
     def _deep_merge(base: dict, override: dict):

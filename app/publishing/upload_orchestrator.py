@@ -60,8 +60,10 @@ class UploadOrchestrator:
         can_upload, reason = orch.can_upload("youtube")
     """
 
-    def __init__(self):
-        self.rate_limiter = RateLimiter()
+    def __init__(self, settings=None):
+        limit_overrides = settings.get("platform_limits", {}) if settings else {}
+        self.rate_limiter = RateLimiter(limit_overrides=limit_overrides)
+        self.affiliate_links = settings.get("affiliate_links", []) if settings else []
         self.hashtag_optimizer = HashtagOptimizer()
         self.history_dir = Path("projects/_upload_history")
         self.history_dir.mkdir(parents=True, exist_ok=True)
@@ -108,6 +110,9 @@ class UploadOrchestrator:
                 title=title,
                 narration_excerpt=description,
                 extra_hashtags=tags,
+            )
+            optimized["description"] = self._append_affiliate_links(
+                optimized["description"], platform
             )
 
             # Try upload
@@ -183,7 +188,7 @@ class UploadOrchestrator:
     def _get_uploader(self, platform: str):
         """Lazy-load the appropriate platform uploader."""
         if platform not in self._uploaders:
-            if platform == "youtube":
+            if platform in {"youtube", "youtube_long", "youtube_shorts"}:
                 from app.publishing.youtube_uploader import YouTubeUploader
                 self._uploaders[platform] = YouTubeUploader()
             elif platform == "tiktok":
@@ -199,9 +204,9 @@ class UploadOrchestrator:
                 from app.publishing.rumble_uploader import RumbleUploader
                 self._uploaders[platform] = RumbleUploader()
             elif platform == "facebook":
-                from app.publishing.instagram_uploader import InstagramUploader
-                # Facebook uses same Meta Graph API
-                self._uploaders[platform] = InstagramUploader()
+                raise ValueError(
+                    "Facebook publishing is not implemented. Do not enable it until a dedicated Graph API publisher is added."
+                )
             elif platform == "snapchat":
                 # Snapchat has no public upload API — placeholder
                 from app.publishing.upload_orchestrator import UploadResult
@@ -216,6 +221,20 @@ class UploadOrchestrator:
             else:
                 raise ValueError(f"Unsupported platform: {platform}")
         return self._uploaders[platform]
+
+    def _append_affiliate_links(self, description: str, platform: str) -> str:
+        """Add enabled affiliate links with clear disclosure to descriptions."""
+        if platform not in {"youtube", "youtube_long", "youtube_shorts", "tiktok", "instagram", "facebook"}:
+            return description
+        links = [
+            item for item in self.affiliate_links
+            if item.get("referral_url", "").startswith(("https://", "http://"))
+        ]
+        if not links:
+            return description
+        lines = ["", "—" * 20, "Disclosure: Some links below may be affiliate links. I may earn a commission at no extra cost to you."]
+        lines.extend(f"{item.get('name', 'Recommended resource').replace('_', ' ').title()}: {item['referral_url']}" for item in links)
+        return f"{description.rstrip()}\n" + "\n".join(lines)
 
     def _save_history(self, results: dict[str, UploadResult], title: str):
         """Save upload history."""

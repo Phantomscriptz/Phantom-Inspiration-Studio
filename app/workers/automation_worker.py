@@ -88,6 +88,10 @@ class AutomationWorker(QThread):
         self._stopped = False
         self._videos_produced = 0
         max_videos = self.config.get("max_videos_per_run", 0)  # 0 = unlimited
+        if self.config.get("require_review_before_publish", True):
+            # A review run is always one video, even if an older settings file
+            # still contains the former unlimited default.
+            max_videos = 1
 
         self.log_message.emit("🚀 Automation engine started")
         self.status_change.emit("Initializing components...")
@@ -124,20 +128,29 @@ class AutomationWorker(QThread):
                 self._sleep_or_stop(1800)
                 continue
 
-            # --- Produce one video ---
-            try:
-                self._produce_one_video(enabled_platforms)
-                self._videos_produced += 1
-            except Exception as e:
-                self.error_occurred.emit(f"Pipeline error: {e}")
-                self.log_message.emit(f"❌ Pipeline error: {e}")
+            # Build separately rendered workflows. A vertical Short is never a
+            # resized copy of the long-form video.
+            produced_this_cycle = False
+            for video_format, platforms in self._build_workflows(enabled_platforms):
+                if self._stopped or (max_videos > 0 and self._videos_produced >= max_videos):
+                    break
+                if not any(self._orchestrator.can_upload(platform)[0] for platform in platforms):
+                    continue
+                try:
+                    self._produce_one_video(platforms, video_format)
+                    self._videos_produced += 1
+                    produced_this_cycle = True
+                except Exception as e:
+                    self.error_occurred.emit(f"Pipeline error: {e}")
+                    self.log_message.emit(f"❌ Pipeline error: {e}")
+            if not produced_this_cycle:
                 self._sleep_or_stop(60)
                 continue
 
-            # Wait between videos (randomized to appear human)
+            # Wait between videos to respect the creator's selected pace.
             gap_min = self.config.get("gap_between_videos_min", 30)
             gap_max = self.config.get("gap_between_videos_max", 120)
-            wait_time = random.randint(gap_min, gap_max)
+            wait_time = max(gap_min, gap_max)
             self.log_message.emit(f"⏳ Waiting {wait_time}s before next video...")
             self._sleep_or_stop(wait_time)
 
@@ -149,7 +162,7 @@ class AutomationWorker(QThread):
     # Single video production pipeline
     # ------------------------------------------------------------------
 
-    def _produce_one_video(self, enabled_platforms: list):
+    def _produce_one_video(self, enabled_platforms: list, video_format: str = None):
         """Run the full pipeline to produce and upload one video."""
         import random as _random
 
@@ -164,8 +177,12 @@ class AutomationWorker(QThread):
         else:
             niche = "did_you_know"   # fallback
 
+        # Shorts have a deliberate channel strategy: original inspiration only.
+        if "youtube_shorts" in enabled_platforms:
+            niche = self.config.get("youtube_shorts_niche", "motivational")
+
         topic = self.config.get("topic", "")
-        video_format = self.config.get("video_format", "short")  # short or long
+        video_format = video_format or self.config.get("video_format", "short")
 
         self.log_message.emit(f"\n{'='*50}")
         self.log_message.emit(f"🎬 Producing video #{self._videos_produced + 1}")
@@ -198,9 +215,12 @@ class AutomationWorker(QThread):
         self.log_message.emit("🖼️ Generating images...")
 
         segments_data = [s.to_dict() if hasattr(s, 'to_dict') else s for s in script.segments]
+        render_config = VideoConfig.for_short() if video_format == "short" else VideoConfig.for_long()
         image_paths = self._image_manager.generate_from_segments(
             segments=segments_data,
             niche=niche,
+            width=render_config.width,
+            height=render_config.height,
         )
         self.log_message.emit(f"  Generated {len(image_paths)} images")
 
@@ -248,9 +268,7 @@ class AutomationWorker(QThread):
         self.status_change.emit("Mixing audio...")
         self.progress_update.emit("Audio", 65)
 
-        full_audio = str(output_dir / "full_narration.mp3")
-        if audio_paths:
-            full_audio = audio_paths[0] if len(audio_paths) == 1 else str(output_dir / "full_narration.mp3")
+        full_audio = self._voice_manager.last_full_narration_path or str(output_dir / "full_narration.mp3")
 
         mixed_audio = self._audio_mixer.mix_for_niche(
             voiceover=full_audio,
@@ -263,8 +281,7 @@ class AutomationWorker(QThread):
         self.progress_update.emit("Render", 75)
         self.log_message.emit("🎞️ Rendering video...")
 
-        video_config = VideoConfig.for_short() if video_format == "short" else VideoConfig.for_long()
-        builder = VideoBuilder(config=video_config)
+        builder = VideoBuilder(config=render_config)
 
         video_path = builder.build(
             images=image_paths,
@@ -290,6 +307,11 @@ class AutomationWorker(QThread):
         self.progress_update.emit("Metadata", 90)
 
         # --- Step 9: Upload to enabled platforms ---
+        if self.config.get("require_review_before_publish", True):
+            self.progress_update.emit("Ready for review", 100)
+            self.log_message.emit("📝 Video generated for review. Uploads are disabled until you uncheck 'Generate only'.")
+            return
+
         self.status_change.emit("Uploading...")
         self.progress_update.emit("Upload", 95)
 
@@ -354,9 +376,27 @@ class AutomationWorker(QThread):
         self._subtitle_gen = SubtitleGenerator()
         self._thumbnail_gen = ThumbnailGenerator()
         self._audio_mixer = AudioMixer()
-        self._orchestrator = UploadOrchestrator()
+        self._orchestrator = UploadOrchestrator(settings={
+            "platform_limits": self.config.get("platform_limits", {}),
+            "affiliate_links": self.config.get("affiliate_links", []),
+        })
 
         self.log_message.emit("✅ All components initialized")
+
+    def _build_workflows(self, enabled_platforms: list[str]) -> list[tuple[str, list[str]]]:
+        """Separate YouTube long-form and Shorts into independently rendered jobs."""
+        workflows = []
+        standard_platforms = [
+            platform for platform in enabled_platforms
+            if platform not in {"youtube_long", "youtube_shorts"}
+        ]
+        if standard_platforms:
+            workflows.append((self.config.get("video_format", "short"), standard_platforms))
+        if "youtube_long" in enabled_platforms:
+            workflows.append(("long", ["youtube_long"]))
+        if "youtube_shorts" in enabled_platforms:
+            workflows.append(("short", ["youtube_shorts"]))
+        return workflows
 
     # ------------------------------------------------------------------
     # Helpers

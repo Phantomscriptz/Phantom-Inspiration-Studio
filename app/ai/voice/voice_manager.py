@@ -44,6 +44,7 @@ class VoiceManager:
     def __init__(self, output_dir: str = "projects/_audio"):
         self.provider = EdgeTTSProvider(output_dir=output_dir)
         self.output_dir = Path(output_dir)
+        self.last_full_narration_path: Optional[str] = None
 
     def generate_from_script(
         self,
@@ -85,7 +86,7 @@ class VoiceManager:
             full_text += "\n\n" + seg.get("narration", "")
 
         full_path = str(script_audio_dir / "full_narration.mp3")
-        self.provider.generate_full_narration(
+        self.last_full_narration_path = self.provider.generate_full_narration(
             text=full_text,
             output_filename=f"{title_slug}/full_narration.mp3",
             voice=voice_config.voice,

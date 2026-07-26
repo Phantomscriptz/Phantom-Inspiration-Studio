@@ -4,34 +4,31 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QVBoxLayout,
     QStackedWidget,
-    QToolBar,
     QStatusBar,
     QMessageBox,
 )
-from PySide6.QtGui import QAction
 from PySide6.QtCore import Qt
 
 from app.gui.widgets.sidebar import Sidebar
 from app.gui.widgets.dashboard import Dashboard
 from app.config.settings import SettingsManager
 from app.workers.automation_worker import AutomationWorker
-from app.dialogs.new_project_dialog import NewProjectDialog
-from app.controllers.project_manager import ProjectManager
+from app.services.ollama_model_manager import OllamaModelManager
+from app.services.preflight import run_preflight
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.project_manager = ProjectManager()
         self.settings = SettingsManager()
         self.worker = None
+        self.model_manager = OllamaModelManager(self)
 
         self.setWindowTitle("Phantom Inspiration Studio")
         self.setMinimumSize(900, 600)
         self.resize(1200, 800)
 
-        self.create_toolbar()
         self.create_statusbar()
         self.create_ui()
 
@@ -57,7 +54,7 @@ class MainWindow(QMainWindow):
         self.stack = QStackedWidget()
 
         # Page 0 — Dashboard (stats + control + log)
-        self.dashboard = Dashboard(self.settings)
+        self.dashboard = Dashboard(self.settings, self.model_manager)
         self.stack.addWidget(self.dashboard)                    # index 0
 
         # Page 1 — Platforms (placeholder; dashboard tabs still accessible)
@@ -67,6 +64,10 @@ class MainWindow(QMainWindow):
         # Page 2 — Settings
         settings_page = self._build_settings_page()
         self.stack.addWidget(settings_page)                     # index 2
+
+        from app.gui.widgets.guide_panel import GuidePanel
+        self.guide_panel = GuidePanel(self.settings, self._troubleshooting_reset)
+        self.stack.addWidget(self.guide_panel)                  # index 3
 
         layout.addWidget(self.sidebar)
         layout.addWidget(self.stack, 1)
@@ -95,33 +96,14 @@ class MainWindow(QMainWindow):
         lay = QVBoxLayout(page)
         lay.setContentsMargins(20, 20, 20, 20)
         from app.gui.widgets.content_settings import ContentSettingsPanel
-        self.settings_panel = ContentSettingsPanel(self.settings)
+        self.settings_panel = ContentSettingsPanel(self.settings, self.model_manager)
         lay.addWidget(self.settings_panel)
         return page
 
     def _on_nav_changed(self, index: int):
         self.stack.setCurrentIndex(index)
-        labels = {0: "Dashboard", 1: "Platforms", 2: "Settings"}
+        labels = {0: "Dashboard", 1: "Platforms", 2: "Settings", 3: "Guide"}
         self.statusBar().showMessage(f"View: {labels.get(index, '')}")
-
-    def create_toolbar(self):
-        """Create the application's toolbar."""
-        toolbar = QToolBar("Main Toolbar")
-        toolbar.setMovable(False)
-        self.addToolBar(toolbar)
-
-        new_action = QAction("New Project", self)
-        new_action.triggered.connect(self.new_project)
-
-        open_action = QAction("Open Project", self)
-        save_action = QAction("Save Settings", self)
-        save_action.triggered.connect(self._save_settings)
-
-        toolbar.addAction(new_action)
-        toolbar.addSeparator()
-        toolbar.addAction(open_action)
-        toolbar.addSeparator()
-        toolbar.addAction(save_action)
 
     def create_statusbar(self):
         """Create the status bar."""
@@ -139,6 +121,16 @@ class MainWindow(QMainWindow):
 
         # Get worker config from settings
         config = self.settings.to_worker_config()
+        checks = run_preflight(config)
+        blocking = [check for check in checks if check.required and not check.ok]
+        if blocking:
+            details = "\n".join(f"• {check.label}: {check.detail}" for check in blocking)
+            QMessageBox.warning(self, "Preflight check failed", "Fix these before generating a video:\n\n" + details)
+            self.dashboard.log("⚠️ Preflight stopped the run: " + "; ".join(check.label for check in blocking))
+            return
+        warnings = [check for check in checks if not check.required or not check.ok]
+        for check in warnings:
+            self.dashboard.log(f"ℹ️ Preflight — {check.label}: {check.detail}")
 
         # Create and start worker
         self.worker = AutomationWorker(config)
@@ -195,30 +187,11 @@ class MainWindow(QMainWindow):
         self._errors += 1
         self.dashboard.update_stat("errors", str(self._errors))
 
-    # ------------------------------------------------------------------
-    # Settings
-    # ------------------------------------------------------------------
-
-    def _save_settings(self):
-        self.dashboard.save_settings()
-        # Also save settings from the standalone settings panel
-        if hasattr(self, 'settings_panel'):
-            self.settings_panel.save()
-        self.statusBar().showMessage("Settings saved")
-
-    def new_project(self):
-        """Open the New Project dialog."""
-        dialog = NewProjectDialog()
-
-        if dialog.exec():
-            name = dialog.project_name().strip()
-
-            if not name:
-                self.statusBar().showMessage("Project name cannot be empty.")
-                return
-
-            self.project_manager.create_project(name)
-            self.statusBar().showMessage(f"Project '{name}' created successfully.")
+    def _troubleshooting_reset(self):
+        """Stop active work and remove only disposable runtime-state files."""
+        self._on_stop()
+        self.settings.clear_temporary_runtime_state()
+        self.statusBar().showMessage("Temporary runtime state cleared")
 
     def closeEvent(self, event):
         """Clean up on close."""

@@ -1,10 +1,7 @@
-"""Anti-bot detection & rate limiter — prevents account bans.
+"""Conservative publishing guardrails for a creator-controlled workflow.
 
-Each platform has different rules for posting frequency, daily limits,
-and behavior patterns. This module enforces those limits and randomizes
-posting behavior to appear human.
-
-Rules are based on real platform policies as of 2026.
+These limits are editorial defaults, not a way to evade platform review.
+Every upload must use an approved API flow and comply with platform policy.
 """
 
 import random
@@ -17,15 +14,15 @@ from dataclasses import dataclass, field
 
 
 # ============================================================================
-# PLATFORM RULES — based on real ToS and observed bot detection
+# PLATFORM RULES — conservative defaults, adjustable by the account owner.
 # ============================================================================
 
 PLATFORM_RULES = {
     "youtube": {
         "name": "YouTube",
-        "max_videos_per_day": 3,           # YT flags 10+/day as spam
+        "max_videos_per_day": 2,
         "max_videos_per_week": 15,
-        "min_interval_minutes": 30,        # Min gap between uploads
+        "min_interval_minutes": 120,
         "max_interval_minutes": 360,       # Don't wait too long (engagement dies)
         "best_hours_utc": [14, 15, 16, 17, 18, 19, 20, 21],  # US prime time
         "cooldown_after_bulk_hours": 6,    # After 3+ videos, wait 6h
@@ -50,7 +47,7 @@ PLATFORM_RULES = {
     },
     "tiktok": {
         "name": "TikTok",
-        "max_videos_per_day": 4,           # TikTok allows more but quality > quantity
+        "max_videos_per_day": 2,
         "max_videos_per_week": 20,
         "min_interval_minutes": 20,
         "max_interval_minutes": 480,
@@ -227,6 +224,23 @@ PLATFORM_RULES = {
     },
 }
 
+# One account, two deliberately separate editorial workflows. These are not
+# separate YouTube accounts or a way to bypass YouTube's channel-wide policy.
+PLATFORM_RULES["youtube_long"] = {
+    **PLATFORM_RULES["youtube"],
+    "name": "YouTube Videos",
+    "max_videos_per_day": 1,
+    "max_videos_per_week": 2,
+    "min_interval_minutes": 1440,
+}
+PLATFORM_RULES["youtube_shorts"] = {
+    **PLATFORM_RULES["youtube"],
+    "name": "YouTube Shorts",
+    "max_videos_per_day": 1,
+    "max_videos_per_week": 5,
+    "min_interval_minutes": 720,
+}
+
 
 @dataclass
 class PostingRecord:
@@ -251,7 +265,7 @@ class RateLimitState:
 
 class RateLimiter:
     """
-    Anti-bot rate limiter — enforces per-platform posting limits.
+    Publishing guardrail — enforces creator-selected posting limits.
 
     Tracks posting history and prevents:
     - Exceeding daily/weekly upload limits
@@ -277,10 +291,11 @@ class RateLimiter:
         delay = limiter.get_humanized_delay("instagram")
     """
 
-    def __init__(self, state_dir: str = "projects/_rate_limits"):
+    def __init__(self, state_dir: str = "projects/_rate_limits", limit_overrides: Optional[dict] = None):
         self.state_dir = Path(state_dir)
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self._states: dict[str, RateLimitState] = {}
+        self.limit_overrides = limit_overrides or {}
         self._load_all()
 
     # ------------------------------------------------------------------
@@ -297,7 +312,7 @@ class RateLimiter:
         if platform not in PLATFORM_RULES:
             return True, "Unknown platform — no restrictions"
 
-        rules = PLATFORM_RULES[platform]
+        rules = self._rules_for(platform)
         state = self._get_state(platform)
 
         # Check daily limit
@@ -342,10 +357,10 @@ class RateLimiter:
             rest_needed = rules["rest_days_required"]
             return False, (
                 f"Rest day needed: posted {state.consecutive_days_posting} consecutive days. "
-                f"Take {rest_needed} day(s) off to avoid detection."
+                f"Take {rest_needed} day(s) off and review your publishing plan."
             )
 
-        return True, "OK — safe to post"
+        return True, "OK — within your configured publishing guardrails"
 
     def record_post(self, platform: str, video_title: str = "") -> PostingRecord:
         """Record that a video was posted to a platform."""
@@ -371,12 +386,11 @@ class RateLimiter:
         Get the next optimal posting time for a platform.
 
         Returns a datetime within the next 24 hours at the best hour.
-        Adds a random offset (±15min) to look human.
         """
         if platform not in PLATFORM_RULES:
             return datetime.now() + timedelta(minutes=30)
 
-        rules = PLATFORM_RULES[platform]
+        rules = self._rules_for(platform)
         now = datetime.now()
         best_hours = rules["best_hours_utc"]
 
@@ -400,39 +414,25 @@ class RateLimiter:
 
         target = now + timedelta(hours=hours_ahead)
 
-        # Add random offset for humanization (±15 minutes)
-        offset_minutes = random.randint(-15, 15)
-        target += timedelta(minutes=offset_minutes)
-
         return target
 
     def get_humanized_delay(self, platform: str) -> float:
         """
-        Get a randomized delay (in seconds) between posts.
-
-        This mimics human behavior — nobody posts at exactly regular intervals.
+        Get the configured minimum delay (in seconds) between posts.
         """
         if platform not in PLATFORM_RULES:
-            return random.uniform(60, 180)
+            return 60
 
-        rules = PLATFORM_RULES[platform]
+        rules = self._rules_for(platform)
         min_min = rules["min_interval_minutes"]
-        max_min = rules.get("max_interval_minutes", min_min * 4)
-
-        # Pick a random delay between min and 2x min, with some variance
-        base = random.uniform(min_min, min_min * 2)
-        # Add occasional longer delays (mimics human doing other things)
-        if random.random() < 0.2:
-            base = random.uniform(min_min * 3, max_min)
-
-        return base * 60  # Convert to seconds
+        return min_min * 60
 
     def get_status_summary(self, platform: str) -> dict:
         """Get a summary of current rate limit status."""
         if platform not in PLATFORM_RULES:
             return {"platform": platform, "status": "unknown"}
 
-        rules = PLATFORM_RULES[platform]
+        rules = self._rules_for(platform)
         state = self._get_state(platform)
         can, reason = self.can_post(platform)
 
@@ -457,6 +457,14 @@ class RateLimiter:
             platform: self.get_status_summary(platform)
             for platform in PLATFORM_RULES
         }
+
+    def _rules_for(self, platform: str) -> dict:
+        """Return platform rules with the user's explicit daily cap applied."""
+        rules = PLATFORM_RULES[platform].copy()
+        configured = self.limit_overrides.get(platform, {}).get("max_per_day")
+        if isinstance(configured, int) and configured > 0:
+            rules["max_videos_per_day"] = configured
+        return rules
 
     # ------------------------------------------------------------------
     # Internal helpers

@@ -91,6 +91,10 @@ class TikTokUploader:
                 token_data = json.load(f)
             if token_data.get("expires_at", 0) > time.time():
                 return token_data["access_token"]
+            if token_data.get("refresh_token"):
+                refreshed = self._refresh_access_token(token_data)
+                if refreshed:
+                    return refreshed
 
         creds = self._load_credentials()
 
@@ -157,6 +161,38 @@ class TikTokUploader:
 
         print(f"  ✅ TikTok token saved to {self.token_path}")
         return token["access_token"]
+
+    def _refresh_access_token(self, token_data: dict) -> Optional[str]:
+        """Refresh an expired user token without requiring another browser login."""
+        try:
+            creds = self._load_credentials()
+            response = self._session.post(
+                self.TOKEN_URL,
+                data={
+                    "client_key": creds["client_key"],
+                    "client_secret": creds["client_secret"],
+                    "grant_type": "refresh_token",
+                    "refresh_token": token_data["refresh_token"],
+                },
+                timeout=30,
+            )
+            response.raise_for_status()
+            payload = response.json().get("data", response.json())
+            access_token = payload.get("access_token")
+            if not access_token:
+                return None
+            token_data.update({
+                "access_token": access_token,
+                "refresh_token": payload.get("refresh_token", token_data["refresh_token"]),
+                "expires_at": time.time() + payload.get("expires_in", 86400),
+                "open_id": payload.get("open_id", token_data.get("open_id", "")),
+            })
+            with open(self.token_path, "w") as handle:
+                json.dump(token_data, handle, indent=2)
+            return access_token
+        except Exception:
+            # OAuth will fall back to the interactive, user-approved browser flow.
+            return None
 
     def _capture_auth_code(self, port: int = 8080) -> Optional[str]:
         """Start a local HTTP server to capture the OAuth callback code."""

@@ -32,8 +32,12 @@ except ImportError:
 from app.publishing.upload_orchestrator import UploadResult
 
 
-# Scopes needed for YouTube upload
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+# Upload plus the minimal read scope used to display the owner's public channel
+# audience count in the app.  Existing upload-only tokens will re-consent once.
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.readonly",
+]
 
 
 class YouTubeUploader:
@@ -84,6 +88,10 @@ class YouTubeUploader:
         # Load existing token
         if self.token_path.exists():
             creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
+            # A token from an older build may only have upload permission.  Do
+            # not claim audience sync is ready until the user re-consents.
+            if not creds.has_scopes(SCOPES):
+                creds = None
 
         # Refresh or get new credentials
         if not creds or not creds.valid:
@@ -111,6 +119,21 @@ class YouTubeUploader:
 
         self._service = build("youtube", "v3", credentials=creds)
         return self._service
+
+    def get_channel_audience(self) -> dict:
+        """Return current channel counts using the official YouTube API."""
+        service = self._get_service()
+        response = service.channels().list(part="snippet,statistics", mine=True).execute()
+        items = response.get("items", [])
+        if not items:
+            raise RuntimeError("No YouTube channel was returned for this account.")
+        channel = items[0]
+        stats = channel.get("statistics", {})
+        return {
+            "name": channel.get("snippet", {}).get("title", "YouTube channel"),
+            "subscribers": stats.get("subscriberCount", "hidden"),
+            "views": stats.get("viewCount", "0"),
+        }
 
     def upload(
         self,

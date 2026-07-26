@@ -30,6 +30,14 @@ cache/
 # Exports
 exports/
 
+# Never commit customer OAuth secrets, API keys, or refresh tokens.
+config/*_credentials.json
+config/*_client_secret.json
+config/*_token.json
+app/config/*_credentials.json
+app/config/*_client_secret.json
+app/config/*_token.json
+
 # Models
 models/
 

@@ -7,6 +7,7 @@
     "video_format": "short",
     "short_duration": 60,
     "long_duration": 10,
+    "youtube_shorts_niche": "motivational",
     "language": "en",
     "resolution": "1920x1080",
     "fps": 30,
@@ -15,7 +16,7 @@
     "ollama_model": "qwen2.5:14b",
     "ollama_url": "http://localhost:11434",
     "script_temperature": 0.85,
-    "voice_selected": "random",
+    "voice_selected": "en-IN-NeerjaNeural",
     "image_provider": "pollinations",
     "pexels_api_key": "",
     "local_sd_url": "http://127.0.0.1:7860",
@@ -24,12 +25,16 @@
     "gap_between_videos_max": 120,
     "auto_start": false,
     "platform_limits": {
-        "youtube": {
-            "enabled": true,
+        "youtube_long": {
+            "enabled": false,
             "max_per_day": 3
         },
-        "tiktok": {
+        "youtube_shorts": {
             "enabled": true,
+            "max_per_day": 1
+        },
+        "tiktok": {
+            "enabled": false,
             "max_per_day": 4
         },
         "instagram": {
@@ -75,12 +80,15 @@
             "description": "Ad network for popunder/interstitial revenue."
         }
     },
+    "require_review_before_publish": true,
     "humanize_behavior": true,
     "randomize_upload_times": true,
     "rest_days_enabled": true,
     "voice_rate": "+0%",
     "voice_pitch": "+0Hz",
     "selected_niches": [
+        "finance",
+        "true_crime",
         "did_you_know"
     ],
     "randomize_niches": true

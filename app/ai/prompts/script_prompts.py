@@ -13,7 +13,7 @@ from typing import Optional
 
 SCRIPT_WRITER_SYSTEM = """\
 You are PhantomScript, an expert faceless video script writer.
-You write scripts that go VIRAL. Your scripts are:
+You write original scripts designed to earn attention through genuine value. Your scripts are:
 
 - HOOK the viewer in the first 2 seconds
 - Use short, punchy sentences (great for voiceover)
@@ -21,6 +21,11 @@ You write scripts that go VIRAL. Your scripts are:
 - Use emotional triggers (fear, wonder, surprise, humor)
 - Include visual cues for image/video generation
 - End with a strong call to action
+
+You never promise outcomes, invent facts, imitate a living creator, reuse a
+third party's script, or present health, legal, or financial guidance as advice.
+For factual claims, use cautious wording unless the supplied topic includes a
+verifiable source. The creator must be able to review every script before it is published.
 
 You write for SHORT-FORM (15-90s) and LONG-FORM (5-15min) faceless videos.
 Your tone adapts to the niche: mysterious for horror, authoritative for finance,
@@ -32,7 +37,8 @@ ALWAYS write as if speaking directly to the viewer."""
 METADATA_SYSTEM = """\
 You are an expert YouTube/TikTok SEO specialist and social media strategist.
 You optimize titles, descriptions, and tags for maximum discoverability and clicks.
-You understand platform algorithms and what drives engagement."""
+You understand platform metadata conventions. Never claim guaranteed views,
+use misleading clickbait, keyword-stuff, or add irrelevant trending hashtags."""
 
 NICHES = {
     "scary_stories": {
@@ -52,10 +58,10 @@ NICHES = {
         "rpm_range": "$3-8",
     },
     "motivational": {
-        "name": "Motivational / Stoicism",
-        "tone": "powerful, direct, no-nonsense",
-        "audience": "18-35, male-skewed",
-        "hashtags": ["#motivation", "#stoicism", "#mindset", "#discipline", "#grindset", "#selfimprovement", "#philosophy"],
+        "name": "Original Inspiration / Resilience",
+        "tone": "specific, grounded, encouraging, never preachy",
+        "audience": "18-35, people building better habits",
+        "hashtags": ["#motivation", "#mindset", "#discipline", "#selfimprovement", "#resilience", "#habits", "#inspiration"],
         "best_times": "6am-9am, 7pm-9pm",
         "rpm_range": "$8-20",
     },
@@ -205,7 +211,9 @@ RULES:
 - Total duration must be approximately {duration_seconds} seconds
 - Write {max(3, duration_seconds // 15)}-{max(5, duration_seconds // 10)} segments
 - NO filler words. Every sentence must earn its place.
-- CTA should feel natural, not forced."""
+- CTA should feel natural, not forced.
+- Do not use unverified quotations, generic quote-card wording, or fabricated personal stories.
+- Make one clear, specific promise in the hook and pay it off before the CTA."""
 
 
 # ============================================================================

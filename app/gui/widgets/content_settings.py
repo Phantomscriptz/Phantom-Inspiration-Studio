@@ -3,13 +3,41 @@
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
     QLabel, QComboBox, QLineEdit, QSpinBox,
-    QCheckBox, QPushButton, QDialog, QDialogButtonBox, QScrollArea,
+    QCheckBox, QPushButton, QDialog, QDialogButtonBox, QScrollArea, QTextEdit,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QThread, Signal, QUrl
+from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 
 from app.config.settings import SettingsManager
 from app.ai.prompts.script_prompts import NICHES
 from app.ai.voice.edge_tts_provider import ENGLISH_VOICES
+from app.ai.providers.ollama_client import get_client
+from app.ai.voice.edge_tts_provider import EdgeTTSProvider
+
+
+class VoicePreviewWorker(QThread):
+    """Build a short cached voice sample without freezing the interface."""
+    ready = Signal(str)
+    failed = Signal(str)
+
+    def __init__(self, voice_id: str, parent=None):
+        super().__init__(parent)
+        self.voice_id = voice_id
+
+    def run(self):
+        try:
+            from pathlib import Path
+            safe_name = self.voice_id.replace("/", "_").replace("\\", "_")
+            path = Path("projects/_voice_samples") / f"{safe_name}.mp3"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            if not path.exists():
+                EdgeTTSProvider(output_dir=str(path.parent)).generate(
+                    "This is a short Phantom voice preview. Choose the voice that feels right for your channel.",
+                    voice=self.voice_id, output_path=str(path),
+                )
+            self.ready.emit(str(path.resolve()))
+        except Exception as exc:
+            self.failed.emit(str(exc))
 
 
 # ============================================================================
@@ -106,9 +134,11 @@ class NicheSetupDialog(QDialog):
 class ContentSettingsPanel(QWidget):
     """Panel for configuring content generation settings."""
 
-    def __init__(self, settings: SettingsManager, parent=None):
+    def __init__(self, settings: SettingsManager, model_manager=None, parent=None):
         super().__init__(parent)
         self.settings = settings
+        self.model_manager = model_manager
+        self.preview_worker = None
 
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
@@ -164,6 +194,10 @@ class ContentSettingsPanel(QWidget):
         for display_name, voice_id, gender, accent, desc in ENGLISH_VOICES:
             self.voice_combo.addItem(display_name, voice_id)
         voice_row.addWidget(self.voice_combo)
+        self.preview_btn = QPushButton("▶ Play sample")
+        self.preview_btn.setEnabled(False)
+        self.preview_btn.clicked.connect(self._toggle_voice_preview)
+        voice_row.addWidget(self.preview_btn)
         voice_row.addStretch()
         voice_layout.addLayout(voice_row)
 
@@ -172,6 +206,11 @@ class ContentSettingsPanel(QWidget):
         self.voice_desc_label.setWordWrap(True)
         voice_layout.addWidget(self.voice_desc_label)
         self.voice_combo.currentIndexChanged.connect(self._on_voice_changed)
+        self.audio_output = QAudioOutput(self)
+        self.audio_output.setVolume(0.85)
+        self.media_player = QMediaPlayer(self)
+        self.media_player.setAudioOutput(self.audio_output)
+        self.media_player.playbackStateChanged.connect(self._on_preview_state_changed)
 
         layout.addWidget(voice_group)
 
@@ -200,6 +239,37 @@ class ContentSettingsPanel(QWidget):
         model_row.addWidget(self.model_combo)
         model_row.addStretch()
         ai_layout.addLayout(model_row)
+
+        model_status_row = QHBoxLayout()
+        self.model_status = QLabel("Checking local Ollama models…")
+        self.model_status.setWordWrap(True)
+        self.model_status.setStyleSheet("color: #888; font-size: 12px;")
+        model_status_row.addWidget(self.model_status, 1)
+
+        self.install_model_btn = QPushButton("Install selected model")
+        self.install_model_btn.setEnabled(False)
+        self.install_model_btn.setToolTip("Downloads the selected Ollama model only when it is missing.")
+        self.install_model_btn.clicked.connect(self._install_selected_model)
+        model_status_row.addWidget(self.install_model_btn)
+        ai_layout.addLayout(model_status_row)
+
+        self.install_log = QTextEdit()
+        self.install_log.setReadOnly(True)
+        self.install_log.setVisible(False)
+        self.install_log.setMinimumHeight(110)
+        self.install_log.setStyleSheet(
+            "background: #171717; color: #d1d5db; border: 1px solid #444; "
+            "border-radius: 4px; font-family: Consolas, monospace; font-size: 11px;"
+        )
+        ai_layout.addWidget(self.install_log)
+
+        self._install_output = ""
+        if self.model_manager:
+            self.model_manager.started.connect(self._on_model_install_started)
+            self.model_manager.output.connect(self._read_model_install_output)
+            self.model_manager.finished.connect(self._on_model_install_finished)
+            self.model_manager.state_changed.connect(self._refresh_model_status)
+        self.model_combo.currentIndexChanged.connect(self._refresh_model_status)
 
         layout.addWidget(ai_group)
 
@@ -231,10 +301,17 @@ class ContentSettingsPanel(QWidget):
         gap_row.addStretch()
         auto_layout.addLayout(gap_row)
 
+        self.review_before_publish = QCheckBox("Generate only — review each video before publishing")
+        self.review_before_publish.setToolTip("When enabled, Start Automation creates the video and metadata but never uploads it.")
+        self.review_before_publish.setStyleSheet("font-size: 12px; color: #fbbf24; padding: 4px;")
+        auto_layout.addWidget(self.review_before_publish)
+
         layout.addWidget(auto_group)
         layout.addStretch()
 
         self._load_settings()
+        self._connect_auto_save()
+        self._refresh_model_status()
 
     # ------------------------------------------------------------------
     # Niche setup
@@ -271,6 +348,9 @@ class ContentSettingsPanel(QWidget):
 
     def _on_voice_changed(self, index):
         voice_id = self.voice_combo.currentData()
+        self.media_player.stop()
+        self.preview_btn.setText("▶ Play sample")
+        self.preview_btn.setEnabled(voice_id != "random")
         if voice_id == "random":
             self.voice_desc_label.setText(
                 "A random voice will be picked for each video — keeps your channel fresh!"
@@ -282,6 +362,114 @@ class ContentSettingsPanel(QWidget):
                     break
             else:
                 self.voice_desc_label.setText("")
+
+    def _toggle_voice_preview(self):
+        if self.media_player.playbackState() == QMediaPlayer.PlayingState:
+            self.media_player.stop()
+            return
+        voice_id = self.voice_combo.currentData()
+        if not voice_id or voice_id == "random":
+            return
+        self.preview_btn.setEnabled(False)
+        self.preview_btn.setText("Preparing sample…")
+        self.preview_worker = VoicePreviewWorker(voice_id, self)
+        self.preview_worker.ready.connect(self._play_voice_preview)
+        self.preview_worker.failed.connect(self._voice_preview_failed)
+        self.preview_worker.finished.connect(self.preview_worker.deleteLater)
+        self.preview_worker.start()
+
+    def _play_voice_preview(self, path: str):
+        self.media_player.setSource(QUrl.fromLocalFile(path))
+        self.media_player.play()
+        self.preview_btn.setEnabled(True)
+        self.preview_btn.setText("■ Stop sample")
+
+    def _voice_preview_failed(self, message: str):
+        self.preview_btn.setEnabled(True)
+        self.preview_btn.setText("▶ Play sample")
+        self.voice_desc_label.setText(f"Preview unavailable: {message}")
+
+    def _on_preview_state_changed(self, state):
+        if state != QMediaPlayer.PlayingState:
+            self.preview_btn.setText("▶ Play sample")
+
+    # ------------------------------------------------------------------
+    # Ollama model status / installation
+    # ------------------------------------------------------------------
+
+    def _selected_model_name(self) -> str:
+        return self.model_combo.currentText().split(" (")[0]
+
+    def _refresh_model_status(self):
+        model = self._selected_model_name()
+        if self.model_manager and self.model_manager.is_running:
+            if self.model_manager.model == model:
+                self.model_status.setText(f"⬇️ Downloading {model} in the background — you can switch pages.")
+                self.model_status.setStyleSheet("color: #60a5fa; font-size: 12px;")
+                self.install_model_btn.setEnabled(False)
+                self.install_log.setPlainText("\n".join(self.model_manager.log_lines[-16:]))
+                self.install_log.setVisible(True)
+            else:
+                self.model_status.setText(f"⬇️ Downloading {self.model_manager.model} in the background.")
+                self.install_model_btn.setEnabled(False)
+            return
+        try:
+            client = get_client()
+            if not client.is_alive():
+                self.model_status.setText("⚠️ Ollama is not running. Start Ollama, then refresh this page.")
+                self.model_status.setStyleSheet("color: #f59e0b; font-size: 12px;")
+                self.install_model_btn.setEnabled(False)
+                return
+            installed = {item.get("name", "") for item in client.list_models()}
+            if model in installed:
+                self.model_status.setText(f"✅ {model} is installed and ready.")
+                self.model_status.setStyleSheet("color: #22c55e; font-size: 12px;")
+                self.install_model_btn.setEnabled(False)
+            else:
+                self.model_status.setText(f"⚠️ {model} is missing. Install it to use this selection.")
+                self.model_status.setStyleSheet("color: #f59e0b; font-size: 12px;")
+                self.install_model_btn.setEnabled(True)
+        except Exception:
+            self.model_status.setText("⚠️ Could not check Ollama. Verify that it is installed and running.")
+            self.model_status.setStyleSheet("color: #f59e0b; font-size: 12px;")
+            self.install_model_btn.setEnabled(False)
+
+    def _install_selected_model(self):
+        model = self._selected_model_name()
+        if not self.model_manager:
+            self.model_status.setText("❌ Model installer is unavailable.")
+            return
+        self.install_model_btn.setEnabled(False)
+        self.model_manager.install(model)
+
+    def _on_model_install_started(self, model: str):
+        if model != self._selected_model_name():
+            return
+        self.model_status.setText(f"⬇️ Downloading {model}. You can switch pages while it runs.")
+        self.model_status.setStyleSheet("color: #60a5fa; font-size: 12px;")
+        self.install_log.setPlainText("\n".join(self.model_manager.log_lines))
+        self.install_log.setVisible(True)
+
+    def _read_model_install_output(self, latest_line: str):
+        """Show Ollama's live pull output, including layer and download progress."""
+        lines = self.model_manager.log_lines if self.model_manager else []
+        self.install_log.setPlainText("\n".join(lines[-16:]))
+        scrollbar = self.install_log.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+        if lines:
+            self.model_status.setText(f"⬇️ {latest_line}")
+
+    def _on_model_install_finished(self, model, success, message):
+        if model != self._selected_model_name():
+            return
+        if success:
+            self.install_log.append("\n✅ Download complete. Verifying installation…")
+            self._refresh_model_status()
+        else:
+            self.install_log.append("\n❌ Ollama exited before the download completed.")
+            self.model_status.setText("❌ Model installation failed. Make sure Ollama is running and try again.")
+            self.model_status.setStyleSheet("color: #ef4444; font-size: 12px;")
+            self.install_model_btn.setEnabled(True)
 
     # ------------------------------------------------------------------
     # Load / Save
@@ -300,6 +488,7 @@ class ContentSettingsPanel(QWidget):
         self.max_videos.setValue(self.settings.get("max_videos_per_run", 0))
         self.gap_min.setValue(self.settings.get("gap_between_videos_min", 30))
         self.gap_max.setValue(self.settings.get("gap_between_videos_max", 120))
+        self.review_before_publish.setChecked(self.settings.get("require_review_before_publish", True))
 
         voice_id = self.settings.get("voice_selected", "random")
         idx = self.voice_combo.findData(voice_id)
@@ -307,6 +496,22 @@ class ContentSettingsPanel(QWidget):
             self.voice_combo.setCurrentIndex(idx)
         else:
             self.voice_combo.setCurrentIndex(0)
+
+    def _connect_auto_save(self):
+        """Persist each setting immediately after the user changes it."""
+        self.topic_input.textChanged.connect(lambda _text: self.settings.set("topic", self.topic_input.text()))
+        self.model_combo.currentIndexChanged.connect(
+            lambda _index: self.settings.set("ollama_model", self._selected_model_name())
+        )
+        self.voice_combo.currentIndexChanged.connect(
+            lambda _index: self.settings.set("voice_selected", self.voice_combo.currentData())
+        )
+        self.max_videos.valueChanged.connect(lambda value: self.settings.set("max_videos_per_run", value))
+        self.gap_min.valueChanged.connect(lambda value: self.settings.set("gap_between_videos_min", value))
+        self.gap_max.valueChanged.connect(lambda value: self.settings.set("gap_between_videos_max", value))
+        self.review_before_publish.toggled.connect(
+            lambda checked: self.settings.set("require_review_before_publish", checked)
+        )
 
     def save(self):
         self.settings.set("topic", self.topic_input.text())
@@ -318,6 +523,7 @@ class ContentSettingsPanel(QWidget):
         self.settings.set("gap_between_videos_min", self.gap_min.value())
         self.settings.set("gap_between_videos_max", self.gap_max.value())
         self.settings.set("voice_selected", self.voice_combo.currentData())
+        self.settings.set("require_review_before_publish", self.review_before_publish.isChecked())
 
     # ------------------------------------------------------------------
     # Styles
