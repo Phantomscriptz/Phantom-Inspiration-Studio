@@ -5,7 +5,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, Signal
 
 from app.gui.widgets.control_bar import ControlBar
-from app.gui.widgets.platform_tabs import PlatformTabs
 from app.gui.widgets.content_settings import ContentSettingsPanel
 from app.gui.widgets.affiliate_panel import AffiliatePanel
 from app.gui.widgets.log_panel import LogPanel
@@ -97,9 +96,8 @@ class Dashboard(QWidget):
 
         tabs = [
             ("⚙  Content", 0),
-            ("🌐  Platforms", 1),
-            ("💰  Affiliates", 2),
-            ("📋  Log", 3),
+            ("💰  Affiliates", 1),
+            ("📋  Log", 2),
         ]
 
         for text, idx in tabs:
@@ -120,18 +118,15 @@ class Dashboard(QWidget):
         self.content_settings = ContentSettingsPanel(self.settings, model_manager)
         self.tab_stack.addWidget(self.content_settings)         # index 0
 
-        self.platform_tabs = PlatformTabs(self.settings)
-        self.tab_stack.addWidget(self.platform_tabs)            # index 1
-
         self.affiliate_panel = AffiliatePanel(self.settings)
         scroll = QScrollArea()
         scroll.setWidget(self.affiliate_panel)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
-        self.tab_stack.addWidget(scroll)                        # index 2
+        self.tab_stack.addWidget(scroll)                        # index 1
 
         self.log_panel = LogPanel()
-        self.tab_stack.addWidget(self.log_panel)                # index 3
+        self.tab_stack.addWidget(self.log_panel)                # index 2
 
         # The configuration panels can exceed a laptop-sized window.  Keep the
         # start controls visible and make only the active content area scroll.
@@ -141,6 +136,7 @@ class Dashboard(QWidget):
         content_scroll.setFrameShape(QFrame.NoFrame)
         content_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         content_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        self._content_scroll = content_scroll
         layout.addWidget(content_scroll, 1)
 
         # ── Control Bar (bottom — always visible) ──
@@ -159,6 +155,14 @@ class Dashboard(QWidget):
         self.tab_stack.setCurrentIndex(index)
         for i, btn in enumerate(self._tab_buttons):
             btn.setChecked(i == index)
+        # Do not carry a previous settings-panel scroll position into a new
+        # tab. It made the beginning of Platform and Log look cut off.
+        self._content_scroll.verticalScrollBar().setValue(0)
+
+    def show_log(self):
+        """Bring live pipeline activity into view from the first log line."""
+        self._switch_tab(2)
+        self.log_panel.output.verticalScrollBar().setValue(0)
 
     def log(self, message: str):
         self.log_panel.log(message)
@@ -169,4 +173,3 @@ class Dashboard(QWidget):
 
     def save_settings(self):
         self.content_settings.save()
-        self.platform_tabs.save_all()

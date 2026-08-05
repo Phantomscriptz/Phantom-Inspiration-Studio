@@ -7,6 +7,7 @@ __pycache__/
 # Virtual Environment
 .venv/
 venv/
+.venv-whisperx/
 
 # VS Code
 .vscode/
@@ -30,10 +31,24 @@ cache/
 # Exports
 exports/
 
+# Generated media and local project state can be large and may include review
+# assets or content history.  They are intentionally not source-controlled.
+projects/_audio/
+projects/_audio_test/
+projects/_content_history/
+projects/_images/
+projects/_output/
+projects/_test_quality/
+projects/_voice_connectivity_check/
+projects/_voice_samples/
+projects/_provider_smoke/
+
 # Never commit customer OAuth secrets, API keys, or refresh tokens.
 config/*_credentials.json
 config/*_client_secret.json
 config/*_token.json
+config/secrets.json
+config/.env
 app/config/*_credentials.json
 app/config/*_client_secret.json
 app/config/*_token.json

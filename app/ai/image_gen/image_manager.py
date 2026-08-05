@@ -1,10 +1,11 @@
 """Image manager — orchestrates image generation for the video pipeline.
 
-Uses Pollinations.ai (free, no API key) as the primary provider,
+Uses authenticated Pollinations.ai as the primary provider,
 with local Stable Diffusion as an optional upgrade.
 """
 
 from pathlib import Path
+import hashlib
 from typing import Optional
 
 from app.ai.image_gen.providers import (
@@ -12,6 +13,7 @@ from app.ai.image_gen.providers import (
     StockImageProvider,
     LocalStableDiffusion,
 )
+from PIL import Image, ImageDraw, ImageFilter
 
 
 # Image style enhancers per niche
@@ -37,7 +39,7 @@ class ImageManager:
 
     Automatically uses the best available provider:
     1. Local Stable Diffusion (if running)
-    2. Pollinations.ai (free, always available)
+    2. Pollinations.ai (credentialed, with local review fallback)
     3. Stock images (if API key provided)
 
     Usage:
@@ -67,6 +69,7 @@ class ImageManager:
         # Determine best provider
         self._use_local_sd = self.local_sd.is_running()
         self._use_pexels = pexels_api_key is not None
+        self.last_warnings: list[str] = []
 
     def generate(
         self,
@@ -85,14 +88,25 @@ class ImageManager:
         enhanced_prompt = self._enhance_prompt(prompt, niche)
 
         # Route to best available provider
-        if self._use_local_sd:
-            return self.local_sd.generate(
+        try:
+            if self._use_local_sd:
+                return self.local_sd.generate(
+                    enhanced_prompt, width=width, height=height,
+                    output_filename=output_filename,
+                )
+            return self.pollinations.generate(
                 enhanced_prompt, width=width, height=height,
                 output_filename=output_filename,
             )
-        else:
-            return self.pollinations.generate(
-                enhanced_prompt, width=width, height=height,
+        except Exception as exc:
+            # A zero-budget cloud provider is not a production dependency.
+            # Complete review renders with an unmistakably local visual rather
+            # than discarding the entire script and voiceover on HTTP 500.
+            message = f"Image provider unavailable ({type(exc).__name__}); used local review visual."
+            if message not in self.last_warnings:
+                self.last_warnings.append(message)
+            return self._create_local_review_visual(
+                prompt=enhanced_prompt, width=width, height=height,
                 output_filename=output_filename,
             )
 
@@ -116,6 +130,7 @@ class ImageManager:
             List of generated image file paths.
         """
         paths = []
+        self.last_warnings = []
         for i, seg in enumerate(segments, start=1):
             image_prompt = seg.get("image_prompt", "")
             if not image_prompt.strip():
@@ -128,6 +143,31 @@ class ImageManager:
             paths.append(path)
 
         return paths
+
+    def _create_local_review_visual(
+        self, prompt: str, width: int, height: int, output_filename: str | None
+    ) -> str:
+        """Create a tasteful abstract fallback without pretending it is AI art."""
+        digest = hashlib.sha256(prompt.encode("utf-8")).digest()
+        color_a = tuple(20 + value // 3 for value in digest[:3])
+        color_b = tuple(35 + value // 3 for value in digest[3:6])
+        image = Image.new("RGB", (width, height), color_a)
+        draw = ImageDraw.Draw(image, "RGBA")
+        for y in range(height):
+            ratio = y / max(height - 1, 1)
+            color = tuple(int(color_a[i] * (1 - ratio) + color_b[i] * ratio) for i in range(3))
+            draw.line((0, y, width, y), fill=(*color, 255))
+        for index in range(7):
+            radius = int(min(width, height) * (0.12 + index * 0.035))
+            x = int(width * (0.15 + (digest[6 + index] / 255) * 0.7))
+            y = int(height * (0.12 + (digest[13 + index] / 255) * 0.7))
+            glow = (220, 185, 100, max(12, 65 - index * 7))
+            draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=glow)
+        image = image.filter(ImageFilter.GaussianBlur(radius=max(2, min(width, height) // 140)))
+        filename = output_filename or f"local_review_{digest.hex()[:10]}.jpg"
+        output_path = self.output_dir / filename
+        image.save(output_path, "JPEG", quality=92)
+        return str(output_path)
 
     def search_stock(
         self, query: str, count: int = 5, orientation: str = "landscape"
@@ -146,6 +186,6 @@ class ImageManager:
         """Return the status of all image providers."""
         return {
             "local_sd": self._use_local_sd,
-            "pollinations": True,  # Always available
+            "pollinations": bool(self.pollinations.api_key),
             "pexels": self._use_pexels,
         }

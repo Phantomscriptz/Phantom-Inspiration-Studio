@@ -5,15 +5,33 @@ from PySide6.QtWidgets import (
     QLabel, QCheckBox, QSpinBox, QGroupBox, QFrame,
     QPushButton, QTextEdit, QLineEdit, QComboBox, QFileDialog, QMessageBox, QSizePolicy,
 )
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QSize, QThread, QTimer
+from PySide6.QtGui import QIcon
 from pathlib import Path
 import json
+from datetime import datetime
 
 from app.config.settings import SettingsManager
 
 
+class YouTubeAudienceSyncWorker(QThread):
+    """Fetch channel statistics without freezing the desktop interface."""
+
+    succeeded = Signal(dict)
+    failed = Signal(str)
+
+    def run(self):
+        try:
+            from app.publishing.youtube_uploader import YouTubeUploader
+            self.succeeded.emit(YouTubeUploader().get_channel_audience())
+        except Exception as exc:  # shown only for a user-requested sync
+            self.failed.emit(type(exc).__name__)
+
+
 class PlatformTab(QWidget):
     """Individual platform configuration tab."""
+
+    audience_sync_requested = Signal(bool)
 
     def __init__(self, platform_key: str, platform_name: str, settings: SettingsManager, parent=None):
         super().__init__(parent)
@@ -141,11 +159,23 @@ class PlatformTab(QWidget):
         api_layout.addLayout(self._extra_buttons_layout)
 
         layout.addWidget(api_group)
+
+        # The platform form is deliberately compact. Use the remaining space
+        # to explain its status instead of leaving a blank, confusing panel.
+        readiness = QGroupBox("Publishing readiness")
+        readiness.setStyleSheet(api_group.styleSheet())
+        readiness_layout = QVBoxLayout(readiness)
+        self.readiness_label = QLabel()
+        self.readiness_label.setWordWrap(True)
+        self.readiness_label.setStyleSheet("color: #aaa; font-size: 12px; line-height: 1.4;")
+        readiness_layout.addWidget(self.readiness_label)
+        layout.addWidget(readiness)
         layout.addStretch()
 
         # Load current values
         self._load_settings()
         self._refresh_connection_status()
+        self._refresh_readiness()
 
     def _load_settings(self):
         enabled = self.settings.get(f"platform_limits.{self.platform_key}.enabled", False)
@@ -156,6 +186,7 @@ class PlatformTab(QWidget):
 
     def _on_enabled_toggled(self, checked: bool):
         self.settings.set(f"platform_limits.{self.platform_key}.enabled", checked)
+        self._refresh_readiness()
 
     def _refresh_connection_status(self):
         """Show local readiness without ever showing secret values."""
@@ -196,18 +227,9 @@ class PlatformTab(QWidget):
                 self.update_status(f"Authorization failed: {type(exc).__name__}. See the setup guide for details.", False)
 
     def _sync_audience(self):
-        """Fetch counts only where an official integration is implemented."""
+        """Ask the owning tab panel to perform a non-blocking metric refresh."""
         if self.platform_key in {"youtube_long", "youtube_shorts"}:
-            try:
-                from app.publishing.youtube_uploader import YouTubeUploader
-                stats = YouTubeUploader().get_channel_audience()
-                subscribers = stats["subscribers"]
-                visible = f"{int(subscribers):,}" if str(subscribers).isdigit() else "hidden by channel"
-                self.audience_label.setText(f"Audience: {visible} subscribers • {stats['name']}")
-                self.audience_label.setStyleSheet("color: #22c55e; font-size: 12px;")
-            except Exception as exc:
-                self.audience_label.setText("Audience: re-authorize YouTube, then sync again")
-                self.audience_label.setStyleSheet("color: #f59e0b; font-size: 12px;")
+            self.audience_sync_requested.emit(True)
         else:
             self.audience_label.setText("Audience: official metric sync is not implemented for this platform yet")
             self.audience_label.setStyleSheet("color: #888; font-size: 12px;")
@@ -276,6 +298,22 @@ class PlatformTab(QWidget):
         color = "#22c55e" if is_ok else "#888"
         self.status_label.setText(f"Status: {status_text}")
         self.status_label.setStyleSheet(f"color: {color}; font-size: 12px;")
+        self._refresh_readiness()
+
+    def _refresh_readiness(self):
+        """Turn unused panel space into a useful, honest next-step summary."""
+        if not hasattr(self, "readiness_label"):
+            return
+        enabled = self.enabled_cb.isChecked()
+        status = self.status_label.text().replace("Status: ", "")
+        if self.platform_key in {"youtube_long", "youtube_shorts"}:
+            capability = "Official YouTube upload and audience sync are available after OAuth authorization."
+        elif self.platform_key == "tiktok":
+            capability = "TikTok publishing requires an approved official developer app and authorization."
+        else:
+            capability = "This destination is shown for planning and setup; its production publisher is not verified yet."
+        state = "Enabled for a future reviewed upload." if enabled else "Disabled — no uploads will be sent here."
+        self.readiness_label.setText(f"Current state: {state}\nConnection: {status}\n\n{capability}\n\nUse Generate-only until you have reviewed a complete video and its metadata.")
 
     def add_extra_button(self, button: QPushButton):
         """Add a button to the API Connection section (e.g. Setup Guide)."""
@@ -289,6 +327,10 @@ class PlatformTabs(QTabWidget):
         super().__init__(parent)
         self.settings = settings
         self.tabs = {}
+        self._audience_worker = None
+        self._audience_timer = QTimer(self)
+        self._audience_timer.setInterval(60 * 60 * 1000)  # once per hour
+        self._audience_timer.timeout.connect(self.sync_youtube_audience)
 
         self.setStyleSheet("""
             QTabWidget::pane {
@@ -302,9 +344,9 @@ class PlatformTabs(QTabWidget):
                 color: #888;
                 border: none;
                 border-radius: 6px;
-                padding: 8px 16px;
-                margin-right: 4px;
-                font-size: 12px;
+                padding: 7px 9px;
+                margin-right: 2px;
+                font-size: 11px;
             }
             QTabBar::tab:selected {
                 background: #3b82f6;
@@ -315,24 +357,38 @@ class PlatformTabs(QTabWidget):
             }
         """)
 
+        # Brand icons make the destination clear without relying on emoji
+        # rendering, which varies between Windows installations.
+        icon_dir = Path("assets/platform_icons")
+        # Compact names keep every destination visible on a standard laptop
+        # window. The full destination name remains available as a tooltip.
         platforms = [
-            ("youtube_long", "🎬 YouTube Videos"),
-            ("youtube_shorts", "📱 YouTube Shorts"),
-            ("tiktok", "🎵 TikTok"),
-            ("instagram", "📸 Instagram"),
-            ("x_twitter", "🐦 X / Twitter"),
-            ("rumble", "📺 Rumble"),
-            ("facebook", "👍 Facebook"),
-            ("snapchat", "👻 Snapchat"),
+            ("youtube_long", "YouTube", "youtube.svg", "YouTube Videos"),
+            ("youtube_shorts", "YouTube Shorts", "youtube_shorts.svg", "YouTube Shorts"),
+            ("tiktok", "TikTok", "tiktok.svg", "TikTok"),
+            ("instagram", "Instagram", "instagram.svg", "Instagram"),
+            ("x_twitter", "X", "x.svg", "X / Twitter"),
+            ("rumble", "Rumble", "rumble.svg", "Rumble"),
+            ("facebook", "Facebook", "facebook.svg", "Facebook"),
+            ("snapchat", "Snapchat", "snapchat.svg", "Snapchat"),
         ]
+        self.setIconSize(QSize(16, 16))
+        self.tabBar().setUsesScrollButtons(False)
 
-        for key, name in platforms:
-            tab = PlatformTab(key, name, settings)
-            self.addTab(tab, name)
+        for key, short_name, icon_name, full_name in platforms:
+            tab = PlatformTab(key, full_name, settings)
+            tab.audience_sync_requested.connect(self.sync_youtube_audience)
+            index = self.addTab(tab, QIcon(str(icon_dir / icon_name)), short_name)
+            self.setTabToolTip(index, full_name)
             self.tabs[key] = tab
 
         # ── Add Setup Guide buttons to all platforms ──
         self._add_all_guide_buttons()
+        self._restore_cached_youtube_audience()
+        self._audience_timer.start()
+        # A saved authorization can be refreshed shortly after launch. This
+        # uses the cache if offline and never blocks the UI.
+        QTimer.singleShot(1500, self.sync_youtube_audience)
 
     def save_all(self):
         """Save all tab settings."""
@@ -342,6 +398,77 @@ class PlatformTabs(QTabWidget):
     def get_enabled_platforms(self) -> list[str]:
         """Get list of enabled platform keys."""
         return [key for key, tab in self.tabs.items() if tab.enabled_cb.isChecked()]
+
+    def _restore_cached_youtube_audience(self):
+        cached = self.settings.get("audience_cache.youtube", {})
+        if cached.get("name"):
+            self._apply_youtube_audience(cached, cached=True)
+
+    def sync_youtube_audience(self, user_requested: bool = False):
+        """Refresh shared channel-level YouTube counts in a worker thread."""
+        if self._audience_worker and self._audience_worker.isRunning():
+            return
+        if not self._youtube_token_has_audience_scope():
+            if user_requested:
+                self._show_youtube_sync_needed()
+            return
+        if user_requested:
+            for key in ("youtube_long", "youtube_shorts"):
+                self.tabs[key].audience_label.setText("Audience: syncing…")
+                self.tabs[key].audience_label.setStyleSheet("color: #60a5fa; font-size: 12px;")
+        self._audience_worker = YouTubeAudienceSyncWorker(self)
+        self._audience_worker.succeeded.connect(self._on_youtube_audience_synced)
+        self._audience_worker.failed.connect(
+            lambda _error: self._show_youtube_sync_needed() if user_requested else None
+        )
+        self._audience_worker.finished.connect(self._clear_audience_worker)
+        self._audience_worker.start()
+
+    @staticmethod
+    def _youtube_token_has_audience_scope() -> bool:
+        """Avoid opening an OAuth consent page from a background timer."""
+        token_path = Path("config/youtube_token.json")
+        try:
+            payload = json.loads(token_path.read_text(encoding="utf-8"))
+            scopes = set(payload.get("scopes", []))
+            return {
+                "https://www.googleapis.com/auth/youtube.upload",
+                "https://www.googleapis.com/auth/youtube.readonly",
+            }.issubset(scopes)
+        except (OSError, json.JSONDecodeError):
+            return False
+
+    def _on_youtube_audience_synced(self, stats: dict):
+        payload = {
+            "name": stats.get("name", "YouTube channel"),
+            "subscribers": str(stats.get("subscribers", "hidden")),
+            "views": str(stats.get("views", "0")),
+            "synced_at": datetime.now().astimezone().isoformat(timespec="seconds"),
+        }
+        self.settings.set("audience_cache.youtube", payload)
+        self._apply_youtube_audience(payload)
+
+    def _apply_youtube_audience(self, stats: dict, cached: bool = False):
+        raw_subscribers = str(stats.get("subscribers", "hidden"))
+        subscribers = f"{int(raw_subscribers):,}" if raw_subscribers.isdigit() else "hidden by channel"
+        raw_views = str(stats.get("views", "0"))
+        views = f"{int(raw_views):,}" if raw_views.isdigit() else raw_views
+        suffix = " (cached)" if cached else ""
+        for key in ("youtube_long", "youtube_shorts"):
+            self.tabs[key].audience_label.setText(
+                f"Audience: {subscribers} subscribers • {views} channel views • {stats.get('name', 'YouTube channel')}{suffix}"
+            )
+            self.tabs[key].audience_label.setStyleSheet("color: #22c55e; font-size: 12px;")
+
+    def _show_youtube_sync_needed(self):
+        for key in ("youtube_long", "youtube_shorts"):
+            self.tabs[key].audience_label.setText("Audience: re-authorize YouTube, then sync again")
+            self.tabs[key].audience_label.setStyleSheet("color: #f59e0b; font-size: 12px;")
+
+    def _clear_audience_worker(self):
+        if self._audience_worker:
+            self._audience_worker.deleteLater()
+        self._audience_worker = None
 
     def _add_all_guide_buttons(self):
         """Add a Setup Guide button to every platform tab."""

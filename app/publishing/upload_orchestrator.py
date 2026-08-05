@@ -112,7 +112,7 @@ class UploadOrchestrator:
                 extra_hashtags=tags,
             )
             optimized["description"] = self._append_affiliate_links(
-                optimized["description"], platform
+                optimized["description"], platform, niche
             )
 
             # Try upload
@@ -222,13 +222,14 @@ class UploadOrchestrator:
                 raise ValueError(f"Unsupported platform: {platform}")
         return self._uploaders[platform]
 
-    def _append_affiliate_links(self, description: str, platform: str) -> str:
-        """Add enabled affiliate links with clear disclosure to descriptions."""
+    def _append_affiliate_links(self, description: str, platform: str, niche: str = None) -> str:
+        """Add only creator-marked, niche-relevant affiliate links with disclosure."""
         if platform not in {"youtube", "youtube_long", "youtube_shorts", "tiktok", "instagram", "facebook"}:
             return description
         links = [
             item for item in self.affiliate_links
             if item.get("referral_url", "").startswith(("https://", "http://"))
+            and niche in item.get("niches", [])
         ]
         if not links:
             return description

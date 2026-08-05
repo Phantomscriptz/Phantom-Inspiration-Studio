@@ -13,6 +13,8 @@ from app.ai.prompts.script_prompts import (
     NICHES,
     short_form_script_prompt,
     long_form_script_prompt,
+    meditation_script_prompt,
+    topic_planner_prompt,
     metadata_prompt,
     title_generator_prompt,
     full_content_plan_prompt,
@@ -104,24 +106,46 @@ class ScriptWriter:
         """
         self._ensure_server()
 
-        prompt = short_form_script_prompt(
-            topic=topic,
-            niche=niche,
-            duration_seconds=duration_seconds,
-            style=style,
-            extra_instructions=extra_instructions,
+        prompt = (
+            meditation_script_prompt(
+                topic=topic,
+                duration_minutes=max(1, round(duration_seconds / 60)),
+                focus="calm, grounded mindfulness",
+                extra_instructions=extra_instructions,
+            )
+            if niche == "daily_meditation" else
+            short_form_script_prompt(
+                topic=topic,
+                niche=niche,
+                duration_seconds=duration_seconds,
+                style=style,
+                extra_instructions=extra_instructions,
+            )
         )
 
-        raw = self.client.generate(
-            prompt=prompt,
-            system=SCRIPT_WRITER_SYSTEM,
-            temperature=0.85,
-            num_predict=4096,
-            format="json",
+        script = self._generate_script_with_retry(
+            prompt=prompt, niche=niche, format_type="short_form", temperature=0.85, num_predict=4096,
         )
+        # Match the budget used by the prompt and the quality gate.  This
+        # avoids accepting a concise JSON script that renders 25--30% shorter
+        # than the viewer-facing duration selected in the UI.
+        minimum_words = max(70, round(duration_seconds * 2.25))
+        if self._spoken_word_count(script) >= minimum_words:
+            return script
 
-        data = self._parse_json_response(raw)
-        return self._build_script(data, niche, "short_form")
+        # Small local models sometimes return a concise outline even when the
+        # JSON is valid. Give them one focused editorial rewrite before the
+        # worker's broader quality-retry loop decides to stop the run.
+        rewrite_prompt = (
+            prompt
+            + "\n\nThe draft below is TOO SHORT for the requested runtime. Rewrite it from scratch "
+              f"with at least {minimum_words} words spoken aloud across hook and narration. "
+              "Keep the same topic, but add a concrete middle and earned payoff. Return only the required JSON.\n"
+            + json.dumps(script.to_dict(), ensure_ascii=False)
+        )
+        return self._generate_script_with_retry(
+            prompt=rewrite_prompt, niche=niche, format_type="short_form", temperature=0.75, num_predict=4096,
+        )
 
     # ------------------------------------------------------------------
     # LONG-FORM SCRIPT
@@ -150,16 +174,9 @@ class ScriptWriter:
             extra_instructions=extra_instructions,
         )
 
-        raw = self.client.generate(
-            prompt=prompt,
-            system=SCRIPT_WRITER_SYSTEM,
-            temperature=0.8,
-            num_predict=8192,
-            format="json",
+        return self._generate_script_with_retry(
+            prompt=prompt, niche=niche, format_type="long_form", temperature=0.8, num_predict=8192,
         )
-
-        data = self._parse_json_response(raw)
-        return self._build_script(data, niche, "long_form")
 
     # ------------------------------------------------------------------
     # METADATA GENERATION
@@ -182,6 +199,7 @@ class ScriptWriter:
 
         raw = self.client.generate(
             prompt=prompt,
+            model=self.model,
             system=METADATA_SYSTEM,
             temperature=0.7,
             num_predict=2048,
@@ -220,6 +238,7 @@ class ScriptWriter:
 
         raw = self.client.generate(
             prompt=prompt,
+            model=self.model,
             system=METADATA_SYSTEM,
             temperature=0.9,
             num_predict=2048,
@@ -228,6 +247,26 @@ class ScriptWriter:
 
         data = self._parse_json_response(raw)
         return data.get("titles", [])
+
+    def plan_topic(
+        self, niche: str, video_format: str, recent_topics: Optional[list[str]] = None,
+        enabled_subniches: Optional[list[str]] = None,
+    ) -> dict:
+        """Generate a fresh editorial angle instead of using a generic fallback topic."""
+        self._ensure_server()
+        raw = self.client.generate(
+            prompt=topic_planner_prompt(niche, video_format, recent_topics or [], enabled_subniches),
+            model=self.model,
+            system=SCRIPT_WRITER_SYSTEM,
+            temperature=0.9,
+            num_predict=700,
+            format="json",
+        )
+        data = self._parse_json_response(raw)
+        topic = str(data.get("topic", "")).strip()
+        if not topic:
+            raise ValueError("Topic planner returned no usable topic.")
+        return data
 
     # ------------------------------------------------------------------
     # FULL CONTENT PLAN
@@ -248,6 +287,7 @@ class ScriptWriter:
 
         raw = self.client.generate(
             prompt=prompt,
+            model=self.model,
             system=SCRIPT_WRITER_SYSTEM + "\n\n" + METADATA_SYSTEM,
             temperature=0.85,
             num_predict=4096,
@@ -269,6 +309,7 @@ class ScriptWriter:
 
         raw = self.client.generate(
             prompt=prompt,
+            model=self.model,
             system=METADATA_SYSTEM,
             temperature=0.7,
             num_predict=3000,
@@ -281,19 +322,59 @@ class ScriptWriter:
     # INTERNAL: Build VideoScript from parsed data
     # ------------------------------------------------------------------
 
+    def _generate_script_with_retry(
+        self, prompt: str, niche: str, format_type: str, temperature: float, num_predict: int
+    ) -> VideoScript:
+        """Ask the local model again if it returns unusable structured JSON."""
+        last_error = None
+        for attempt in range(1, 4):
+            retry_note = "" if attempt == 1 else (
+                "\n\nYour previous response had invalid segments. Return a JSON object whose `segments` value "
+                "is an array of scene objects; every scene needs narration, image_prompt, and duration_seconds."
+            )
+            try:
+                raw = self.client.generate(
+                    prompt=prompt + retry_note,
+                    model=self.model,
+                    system=SCRIPT_WRITER_SYSTEM,
+                    temperature=temperature,
+                    num_predict=num_predict,
+                    format="json",
+                )
+                return self._build_script(self._parse_json_response(raw), niche, format_type)
+            except (json.JSONDecodeError, TypeError, ValueError, AttributeError) as exc:
+                last_error = exc
+        raise ValueError(f"Script model returned invalid structured output after 3 attempts: {last_error}")
+
+    @staticmethod
+    def _spoken_word_count(script: VideoScript) -> int:
+        return len(f"{script.hook} {script.get_full_narration()}".split())
+
     def _build_script(self, data: dict, niche: str, format_type: str) -> VideoScript:
         """Convert raw parsed JSON into a VideoScript object."""
+        if not isinstance(data, dict):
+            raise ValueError("Script response must be a JSON object.")
+        raw_segments = data.get("segments", [])
+        if not isinstance(raw_segments, list):
+            raise ValueError("Script response must contain a segments array.")
         segments = []
-        for i, seg in enumerate(data.get("segments", []), start=1):
+        for i, seg in enumerate(raw_segments, start=1):
+            if not isinstance(seg, dict):
+                raise ValueError("Every script segment must be a JSON object.")
+            narration = str(seg.get("narration", "")).strip()
+            if not narration:
+                raise ValueError("Every script segment needs narration.")
             segments.append(
                 ScriptSegment(
                     scene_number=seg.get("scene", i),
-                    narration=seg.get("narration", ""),
+                    narration=narration,
                     image_prompt=seg.get("image_prompt", ""),
                     duration_seconds=seg.get("duration_seconds", 10),
                     transition=seg.get("transition", "cut"),
                 )
             )
+        if not segments:
+            raise ValueError("Script response contained no usable scenes.")
 
         # Try to extract a title from the data, or derive from hook
         title = data.get("title", "")
@@ -314,6 +395,8 @@ class ScriptWriter:
             hashtags=data.get("hashtags", niche_info.get("hashtags", [])),
             hook=data.get("hook", ""),
             cta=data.get("cta", ""),
+            references=data.get("references", []),
+            source_review_required=bool(data.get("source_review_required", False)),
         )
 
         return script

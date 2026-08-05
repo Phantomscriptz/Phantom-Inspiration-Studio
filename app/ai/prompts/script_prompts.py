@@ -48,6 +48,7 @@ NICHES = {
         "hashtags": ["#scary", "#horror", "#scarystory", "#darkstories", "#nightmares", "#creepy", "#horrorcommunity"],
         "best_times": "8pm-12am",
         "rpm_range": "$5-12",
+        "subniches": ["urban legends", "haunted places", "psychological suspense", "campfire fiction", "unexplained encounters", "creepy folklore"],
     },
     "reddit_stories": {
         "name": "Reddit Stories",
@@ -56,6 +57,7 @@ NICHES = {
         "hashtags": ["#reddit", "#redditstories", "#redditread", "#aita", "#tifu", "#relationship", "#drama"],
         "best_times": "12pm-3pm, 7pm-10pm",
         "rpm_range": "$3-8",
+        "subniches": ["workplace dilemmas", "friendship conflicts", "family boundaries", "relationship communication", "moral dilemmas", "lighthearted confessions"],
     },
     "motivational": {
         "name": "Original Inspiration / Resilience",
@@ -64,6 +66,16 @@ NICHES = {
         "hashtags": ["#motivation", "#mindset", "#discipline", "#selfimprovement", "#resilience", "#habits", "#inspiration"],
         "best_times": "6am-9am, 7pm-9pm",
         "rpm_range": "$8-20",
+        "subniches": [
+            "small wins and taking the next doable step",
+            "resilience after an ordinary setback",
+            "gentle discipline and sustainable habits",
+            "confidence without pretending to be fearless",
+            "self-respect, boundaries, and inner self-talk",
+            "starting again after procrastination or a difficult week",
+            "purpose, patience, and long-term progress",
+            "rest, recovery, and avoiding burnout without medical claims",
+        ],
     },
     "finance": {
         "name": "Finance / Money",
@@ -72,6 +84,7 @@ NICHES = {
         "hashtags": ["#money", "#finance", "#investing", "#passiveincome", "#wealth", "#stocks", "#crypto"],
         "best_times": "9am-11am, 6pm-8pm",
         "rpm_range": "$15-30",
+        "subniches": ["budgeting basics", "saving habits", "financial literacy", "career income skills", "consumer psychology", "scam awareness"],
     },
     "true_crime": {
         "name": "True Crime",
@@ -80,6 +93,7 @@ NICHES = {
         "hashtags": ["#truecrime", "#crime", "#mystery", "#unsolved", "#detective", "#criminalmind", "#casefile"],
         "best_times": "7pm-11pm",
         "rpm_range": "$6-15",
+        "subniches": ["case timelines", "forensic process", "missing-person awareness", "investigation history", "legal process education", "victim-centered case summaries"],
     },
     "did_you_know": {
         "name": "Did You Know / Facts",
@@ -88,6 +102,7 @@ NICHES = {
         "hashtags": ["#didyouknow", "#facts", "#interesting", "#mindblown", "#factsdaily", "#learnontiktok", "#knowledge"],
         "best_times": "11am-1pm, 5pm-8pm",
         "rpm_range": "$3-7",
+        "subniches": ["everyday science", "nature wonders", "human body basics", "language and culture", "inventions", "surprising history"],
     },
     "history": {
         "name": "History",
@@ -96,6 +111,7 @@ NICHES = {
         "hashtags": ["#history", "#historical", "#ancient", "#civilization", "#ww2", "#roman", "#historystory"],
         "best_times": "10am-12pm, 7pm-9pm",
         "rpm_range": "$5-12",
+        "subniches": ["ancient civilizations", "forgotten inventions", "turning points", "daily life in history", "biographies", "places and landmarks"],
     },
     "space": {
         "name": "Space / Science",
@@ -104,6 +120,7 @@ NICHES = {
         "hashtags": ["#space", "#universe", "#nasa", "#cosmos", "#science", "#astronomy", "#blackhole"],
         "best_times": "8pm-11pm",
         "rpm_range": "$5-10",
+        "subniches": ["solar system", "astronomy discoveries", "space missions", "cosmic scale", "exoplanets", "physics explainers"],
     },
     "psychology": {
         "name": "Psychology / Human Mind",
@@ -112,6 +129,7 @@ NICHES = {
         "hashtags": ["#psychology", "#humanbehavior", "#mind", "#brain", "#psychologyfacts", "#bodylanguage", "#nlp"],
         "best_times": "12pm-2pm, 8pm-10pm",
         "rpm_range": "$6-14",
+        "subniches": ["habits and behavior", "communication", "attention and memory", "social dynamics", "cognitive biases", "emotional literacy"],
     },
     "mystery": {
         "name": "Mysteries / Unexplained",
@@ -120,6 +138,7 @@ NICHES = {
         "hashtags": ["#mystery", "#unexplained", "#paranormal", "#conspiracy", "#strange", "#unsolved", "#cryptid"],
         "best_times": "9pm-12am",
         "rpm_range": "$5-10",
+        "subniches": ["lost places", "historical mysteries", "strange artifacts", "unexplained natural events", "puzzles", "folklore mysteries"],
     },
     "unsolved_murder_mysteries": {
         "name": "Unsolved Murder Mysteries",
@@ -128,6 +147,7 @@ NICHES = {
         "hashtags": ["#unsolvedmystery", "#unsolvedcase", "#murdermystery", "#coldcase", "#truecrimedaily", "#crimecase", "#detective", "#unsolvedcrime"],
         "best_times": "7pm-11pm",
         "rpm_range": "$8-18",
+        "subniches": ["case timelines", "cold-case history", "investigative methods", "missing-person cases", "forensic developments", "victim remembrance"],
     },
     "daily_meditation": {
         "name": "Daily Meditation / Mindfulness",
@@ -136,6 +156,10 @@ NICHES = {
         "hashtags": ["#meditation", "#mindfulness", "#calm", "#innerpeace", "#relax", "#breathwork", "#stressrelief", "#selfcare", "#wellness", "#guidedmeditation"],
         "best_times": "6am-8am, 8pm-10pm",
         "rpm_range": "$4-10",
+        "subniches": [
+            "morning grounding", "sleep wind-down", "paced breathing",
+            "self-compassion", "stress reset", "mindful focus", "body scan", "gratitude",
+        ],
         "is_storytelling": False,
         "voice_config": {
             "voice": "en-US-NancyNeural",
@@ -143,6 +167,23 @@ NICHES = {
             "pitch": "-2Hz",
         },
     },
+}
+
+# Extra ideas are deliberately opt-in.  They widen a channel's editorial range
+# without silently changing the focused default topic pool.
+OPTIONAL_SUBNICHES = {
+    "scary_stories": ["quiet dread stories", "technology horror", "survival suspense", "fictional haunted objects"],
+    "reddit_stories": ["roommate conflicts", "career turning points", "ethical choices", "community kindness stories"],
+    "motivational": ["rebuilding after rejection", "identity-based habits", "overcoming comparison", "courageous conversations"],
+    "finance": ["debt literacy", "negotiating pay", "insurance basics", "long-term investing concepts"],
+    "true_crime": ["media literacy in cases", "justice-system explainers", "safety education", "case updates with verified sources"],
+    "did_you_know": ["food science", "weather and earth", "animals and adaptation", "everyday technology"],
+    "history": ["history myths checked", "women in history", "engineering history", "trade and exploration"],
+    "space": ["night-sky guides", "space technology", "planetary geology", "science news with sources"],
+    "psychology": ["decision making", "conflict repair", "learning strategies", "digital wellbeing"],
+    "mystery": ["archaeological puzzles", "maritime mysteries", "lost media", "scientific unknowns"],
+    "unsolved_murder_mysteries": ["responsible case updates", "evidence literacy", "historical cold cases", "missing-person resources"],
+    "daily_meditation": ["transition rituals", "compassion practice", "nature visualization", "screen-break resets"],
 }
 
 # Storytelling niches — these are narrative-driven and get special treatment
@@ -179,6 +220,13 @@ def short_form_script_prompt(
 
     niche_info = NICHES.get(niche, NICHES["did_you_know"])
 
+    # Neural narration normally lands around 2.2--2.6 spoken words per
+    # second.  A lower budget creates a video whose declared scene lengths
+    # look correct but whose actual audio finishes much too early.
+    target_words = max(70, round(duration_seconds * 2.25))
+    segment_count = max(4, duration_seconds // 12)
+    words_per_segment = max(11, round((target_words - 14) / segment_count))
+
     return f"""Write a {duration_seconds}-second faceless video script about: "{topic}"
 
 NICHE: {niche_info['name']}
@@ -189,6 +237,7 @@ STYLE: {style}
 
 OUTPUT FORMAT (valid JSON):
 {{
+    "title": "A precise, compelling title that stays faithful to the requested topic",
     "hook": "The first 1-2 sentences. Maximum impact. Must stop the scroll.",
     "segments": [
         {{
@@ -200,7 +249,9 @@ OUTPUT FORMAT (valid JSON):
         }}
     ],
     "cta": "Call to action at the end (follow, like, comment, etc.)",
-    "emotional_arc": "curiosity → tension → payoff"
+    "emotional_arc": "curiosity → tension → payoff",
+    "references": [{{"title": "Source title", "url": "https://...", "claim": "The exact claim supported"}}],
+    "source_review_required": false
 }}
 
 RULES:
@@ -208,12 +259,46 @@ RULES:
 - Keep sentences SHORT (5-12 words each) for natural voiceover pacing
 - Image prompts must be DESCRIPTIVE (e.g., "dark abandoned hospital hallway with flickering fluorescent lights, fog on the floor, cinematic lighting")
 - The hook must create a CURIOSITY GAP — make them NEED to keep watching
-- Total duration must be approximately {duration_seconds} seconds
-- Write {max(3, duration_seconds // 15)}-{max(5, duration_seconds // 10)} segments
+- REQUIRED SPOKEN-WORD BUDGET: write at least {target_words} words across the hook and narration. The hook should be 10-16 words; each scene narration should be about {words_per_segment}-{words_per_segment + 5} spoken words. Count only words the voice will say. Do not fake duration with scene labels, image prompts, or punctuation.
+- Write {segment_count}-{segment_count + 1} segments.
+- Before returning JSON, silently count the hook plus narration words and expand the middle/payoff if below {target_words}.
 - NO filler words. Every sentence must earn its place.
 - CTA should feel natural, not forced.
 - Do not use unverified quotations, generic quote-card wording, or fabricated personal stories.
-- Make one clear, specific promise in the hook and pay it off before the CTA."""
+- Keep the title faithful to the requested topic. Do not add unsupported numbers or generic "Did you know?" framing.
+- Make one clear, specific promise in the hook and pay it off before the CTA.
+- For factual, history, psychology, crime, science, or finance content: provide real, directly relevant source URLs for every material claim and set source_review_required to true. Never invent a URL.
+- For original motivation or meditation with no factual claim: use an empty references array. Never make health-treatment or outcome claims."""
+
+
+def topic_planner_prompt(
+    niche: str, video_format: str, recent_topics: list[str] | None = None,
+    enabled_subniches: list[str] | None = None,
+) -> str:
+    """Create one specific, original angle when the creator leaves Topic blank."""
+    info = NICHES.get(niche, NICHES["motivational"])
+    subniches = enabled_subniches or info.get("subniches", [])
+    recent = "\n".join(f"- {item}" for item in (recent_topics or [])[-20:]) or "- None recorded"
+    return f"""Plan ONE original {video_format} video idea for this channel.
+
+NICHE: {info['name']}
+SUB-NICHES TO ROTATE: {', '.join(subniches) or 'Use the channel niche'}
+RECENT TOPICS — do not repeat their angle, wording, or hook:
+{recent}
+
+Return valid JSON only:
+{{
+  "topic": "A precise, human-sounding topic; not a generic category",
+  "angle": "The fresh point of view or situation",
+  "viewer_promise": "The specific value the viewer receives",
+  "subniche": "One selected sub-niche"
+}}
+
+Rules:
+- Pick an evergreen, safe, emotionally grounded idea.
+- Avoid generic phrases such as 'amazing facts', 'change your life', or 'motivation fades'.
+- For inspiration, use a relatable situation and one practical, non-medical takeaway.
+- Do not invent facts, statistics, quotations, news, or personal stories."""
 
 
 # ============================================================================
@@ -299,16 +384,17 @@ OUTPUT FORMAT (valid JSON):
     "description": "SEO-rich description (150-300 words for YouTube, 2-3 sentences for TikTok/Reels)",
     "hashtags": ["hashtag1", "hashtag2", "..."],
     "tags": ["keyword1", "keyword2", "..."],
-    "thumbnail_prompt": "AI image prompt for a clickbait thumbnail (if applicable)"
+    "thumbnail_prompt": "Accurate, compelling visual concept for a thumbnail (if applicable)"
 }}
 
 PLATFORM RULES:
-- YouTube: Long description with keywords, timestamps, and links. 15-30 tags.
+- YouTube: Clear description with relevant keywords. Only use real links supplied by the creator; never write "link in bio". Use timestamps only for long-form videos.
 - TikTok: Short punchy title, 3-5 relevant hashtags in description.
 - Instagram: 5-10 hashtags, engaging caption, emoji usage.
 - X/Twitter: Thread-worthy caption, 1-3 hashtags max.
 - Snapchat: Short title, trending sounds reference.
 
+Return hashtags with the leading #. Use only relevant hashtags and do not keyword-stuff.
 Always include the niche hashtags: {', '.join(niche_info['hashtags'][:5])}
 Make the title create CURIOSITY — but don't clickbait."""
 

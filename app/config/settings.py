@@ -24,6 +24,9 @@ class SettingsManager:
             "short_duration": 60,             # seconds
             "long_duration": 10,              # minutes
             "youtube_shorts_niche": "motivational",
+            "selected_niches": ["did_you_know"],
+            "randomize_niches": False,
+            "selected_subniches": {},
             "language": "en",
 
             # Video quality
@@ -44,23 +47,25 @@ class SettingsManager:
             "image_provider": "pollinations", # pollinations, pexels, local_sd
             "pexels_api_key": "",
             "local_sd_url": "http://127.0.0.1:7860",
+            "cinematic_broll": True,
+            "broll_selected_clip": "",
 
             # Automation
-            "max_videos_per_run": 1,          # require deliberate scaling
-            "gap_between_videos_min": 7200,   # seconds (2 hours)
-            "gap_between_videos_max": 7200,   # seconds (2 hours)
+            "max_videos_per_run": 1,          # one reviewable production at a time
+            "gap_between_videos_min": 43200,  # editorial scheduling, not activity simulation
+            "gap_between_videos_max": 43200,
             "auto_start": False,
 
             # Platform daily limits (overrides rate_limiter defaults)
             "platform_limits": {
                 "youtube_long": {"enabled": False, "max_per_day": 1},
                 "youtube_shorts": {"enabled": False, "max_per_day": 1},
-                "tiktok": {"enabled": True, "max_per_day": 4},
-                "instagram": {"enabled": False, "max_per_day": 3},
-                "x_twitter": {"enabled": False, "max_per_day": 5},
-                "rumble": {"enabled": False, "max_per_day": 5},
-                "facebook": {"enabled": False, "max_per_day": 3},
-                "snapchat": {"enabled": False, "max_per_day": 3},
+                "tiktok": {"enabled": False, "max_per_day": 1},
+                "instagram": {"enabled": False, "max_per_day": 1},
+                "x_twitter": {"enabled": False, "max_per_day": 1},
+                "rumble": {"enabled": False, "max_per_day": 1},
+                "facebook": {"enabled": False, "max_per_day": 1},
+                "snapchat": {"enabled": False, "max_per_day": 1},
             },
 
             # Affiliate / Referral links
@@ -89,6 +94,8 @@ class SettingsManager:
 
             # Publishing controls
             "require_review_before_publish": True,
+            "require_source_review": True,
+            "content_similarity_threshold": 0.72,
         }
 
         self.settings = {}
@@ -166,12 +173,15 @@ class SettingsManager:
             "niche": self.get("niche"),
             "selected_niches": self.get("selected_niches", ["did_you_know"]),
             "randomize_niches": self.get("randomize_niches", False),
+            "selected_subniches": self.get("selected_subniches", {}),
             "topic": self.get("topic"),
             "video_format": self.get("video_format", "short"),
             "short_duration": self.get("short_duration"),
             "long_duration": self.get("long_duration"),
             "ollama_model": self.get("ollama_model"),
             "voice_selected": self.get("voice_selected", "random"),
+            "cinematic_broll": self.get("cinematic_broll", True),
+            "broll_selected_clip": self.get("broll_selected_clip", ""),
             "youtube_shorts_niche": self.get("youtube_shorts_niche", "motivational"),
             "require_review_before_publish": self.get("require_review_before_publish", True),
             "max_videos_per_run": self.get("max_videos_per_run"),
@@ -187,7 +197,7 @@ class SettingsManager:
         keys = {
             "niche", "topic", "video_format", "short_duration", "long_duration",
             "youtube_shorts_niche", "language", "resolution", "fps", "video_codec",
-            "crf", "ollama_model", "script_temperature", "voice_selected",
+            "crf", "ollama_model", "script_temperature", "voice_selected", "cinematic_broll",
             "image_provider", "local_sd_url", "max_videos_per_run",
             "gap_between_videos_min", "gap_between_videos_max", "auto_start",
             "require_review_before_publish",
@@ -196,6 +206,7 @@ class SettingsManager:
             self.settings[key] = self.defaults[key]
         self.settings.pop("selected_niches", None)
         self.settings.pop("randomize_niches", None)
+        self.settings.pop("selected_subniches", None)
         self.save()
 
     def clear_temporary_runtime_state(self):

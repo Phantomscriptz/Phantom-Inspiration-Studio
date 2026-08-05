@@ -8,6 +8,9 @@ Supports:
 - Local Stable Diffusion via ComfyUI API
 """
 
+import base64
+import json
+import os
 import requests
 import time
 from pathlib import Path
@@ -18,16 +21,32 @@ from PIL import Image
 
 class PollinationsProvider:
     """
-    Free AI image generation via Pollinations.ai.
-    No API key needed. Uses their public endpoint.
+    AI image generation via Pollinations.ai.
+
+    The legacy unauthenticated endpoint is unreliable.  The current API accepts
+    a server-side key in an Authorization header; the key is read from an
+    ignored local file or environment variable and is never placed in a URL.
     """
 
-    BASE_URL = "https://image.pollinations.ai/prompt"
+    BASE_URL = "https://gen.pollinations.ai/image"
 
-    def __init__(self, output_dir: str = "projects/_images"):
+    def __init__(self, output_dir: str = "projects/_images", api_key: str | None = None):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self._session = requests.Session()
+        self.api_key = api_key or self._load_api_key()
+
+    @staticmethod
+    def _load_api_key() -> str:
+        """Load the local, git-ignored Pollinations key without logging it."""
+        if os.environ.get("POLLINATIONS_API_KEY"):
+            return os.environ["POLLINATIONS_API_KEY"].strip()
+        secrets_path = Path("config/secrets.json")
+        try:
+            data = json.loads(secrets_path.read_text(encoding="utf-8"))
+            return str(data.get("pollinations_api_key", "")).strip()
+        except (OSError, ValueError, TypeError):
+            return ""
 
     def generate(
         self,
@@ -50,11 +69,15 @@ class PollinationsProvider:
         Returns:
             Path to the saved image.
         """
-        # Build URL
+        # Build the current authenticated API request.  Keep the credential in
+        # a header so it is not saved in error logs, browser history, or output
+        # metadata.
         encoded_prompt = requests.utils.quote(prompt)
-        url = f"{self.BASE_URL}/{encoded_prompt}?width={width}&height={height}"
+        url = f"{self.BASE_URL}/{encoded_prompt}"
+        params = {"width": width, "height": height, "model": "flux"}
         if seed is not None:
-            url += f"&seed={seed}"
+            params["seed"] = seed
+        headers = {"Authorization": f"Bearer {self.api_key}"} if self.api_key else {}
 
         # Generate filename
         if output_filename is None:
@@ -66,8 +89,11 @@ class PollinationsProvider:
         # Download with retries
         for attempt in range(3):
             try:
-                r = self._session.get(url, timeout=120, stream=True)
+                r = self._session.get(url, params=params, headers=headers, timeout=180, stream=True)
                 r.raise_for_status()
+                content_type = r.headers.get("Content-Type", "").lower()
+                if not content_type.startswith("image/"):
+                    raise RuntimeError(f"Pollinations returned {content_type or 'an unexpected response'}")
                 with open(output_path, "wb") as f:
                     for chunk in r.iter_content(8192):
                         f.write(chunk)
@@ -76,7 +102,7 @@ class PollinationsProvider:
                 if attempt < 2:
                     time.sleep(2)
                 else:
-                    raise RuntimeError(f"Pollinations generation failed: {e}")
+                    raise RuntimeError(f"Pollinations generation failed: {type(e).__name__}: {e}")
 
         return str(output_path)
 

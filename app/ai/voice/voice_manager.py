@@ -45,6 +45,7 @@ class VoiceManager:
         self.provider = EdgeTTSProvider(output_dir=output_dir)
         self.output_dir = Path(output_dir)
         self.last_full_narration_path: Optional[str] = None
+        self.used_local_fallback = False
 
     def generate_from_script(
         self,
@@ -57,7 +58,12 @@ class VoiceManager:
             niche = niche or script_data.get("niche", "did_you_know")
             voice_config = VoiceConfig.for_niche(niche)
 
-        segments = script_data.get("segments", [])
+        # The hook is spoken in the final narration, so it must also have a
+        # real audio segment. Otherwise every subtitle starts late.
+        segments = list(script_data.get("segments", []))
+        hook = script_data.get("hook", "").strip()
+        if hook:
+            segments.insert(0, {"narration": hook, "scene": 0})
 
         # Create subdirectory for this script
         title_slug = self._slugify(script_data.get("title", "script"))[:50]
@@ -65,6 +71,7 @@ class VoiceManager:
         script_audio_dir.mkdir(parents=True, exist_ok=True)
 
         paths = []
+        self.provider.fallback_count = 0
         for i, seg in enumerate(segments, start=1):
             narration = seg.get("narration", "")
             if not narration.strip():
@@ -81,9 +88,7 @@ class VoiceManager:
             paths.append(path)
 
         # Also generate the full narration as one file
-        full_text = script_data.get("hook", "")
-        for seg in segments:
-            full_text += "\n\n" + seg.get("narration", "")
+        full_text = "\n\n".join(seg.get("narration", "").strip() for seg in segments if seg.get("narration", "").strip())
 
         full_path = str(script_audio_dir / "full_narration.mp3")
         self.last_full_narration_path = self.provider.generate_full_narration(
@@ -93,6 +98,7 @@ class VoiceManager:
             rate=voice_config.rate,
             pitch=voice_config.pitch,
         )
+        self.used_local_fallback = self.provider.fallback_count > 0
 
         return paths
 

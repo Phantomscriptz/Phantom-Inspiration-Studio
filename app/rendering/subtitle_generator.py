@@ -55,14 +55,16 @@ class SubtitleGenerator:
                 continue
 
             # Split narration into subtitle chunks
-            chunks = self._split_into_chunks(narration, max_chars=42)
+            chunks = self._split_into_chunks(narration, max_chars=32)
 
-            # Distribute time across chunks
-            time_per_chunk = duration / max(len(chunks), 1)
+            # Give longer phrases proportionally more screen time. Equal
+            # timing made short words linger and long phrases fall behind.
+            word_counts = [max(1, len(chunk.split())) for chunk in chunks]
+            total_words = sum(word_counts)
 
-            for chunk in chunks:
+            for chunk, word_count in zip(chunks, word_counts):
                 start = current_time
-                end = current_time + time_per_chunk
+                end = current_time + (duration * word_count / total_words)
 
                 srt_entries.append(
                     self._format_srt_entry(
@@ -127,6 +129,43 @@ class SubtitleGenerator:
             f.write("\n\n".join(srt_entries))
             f.write("\n")
 
+        return str(output_path)
+
+    def generate_from_word_timestamps(
+        self,
+        words: list[dict],
+        output: str = "subtitles.srt",
+        max_words: int = 5,
+        max_duration: float = 2.8,
+        pause_break: float = 0.55,
+    ) -> str:
+        """Generate compact captions using real ASR word timestamps."""
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        entries, chunk = [], []
+
+        def flush():
+            if not chunk:
+                return
+            entries.append(self._format_srt_entry(
+                len(entries) + 1, float(chunk[0]["start"]), float(chunk[-1]["end"]),
+                " ".join(str(item["word"]).strip() for item in chunk),
+            ))
+            chunk.clear()
+
+        for word in words:
+            if not str(word.get("word", "")).strip():
+                continue
+            if chunk:
+                elapsed = float(word["end"]) - float(chunk[0]["start"])
+                pause = float(word["start"]) - float(chunk[-1]["end"])
+                if len(chunk) >= max_words or elapsed >= max_duration or pause >= pause_break:
+                    flush()
+            chunk.append(word)
+            if str(word["word"]).rstrip().endswith((".", "!", "?")) and len(chunk) >= 2:
+                flush()
+        flush()
+        output_path.write_text("\n\n".join(entries) + ("\n" if entries else ""), encoding="utf-8")
         return str(output_path)
 
     def _split_into_chunks(

@@ -87,11 +87,14 @@ class YouTubeUploader:
 
         # Load existing token
         if self.token_path.exists():
-            creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
-            # A token from an older build may only have upload permission.  Do
-            # not claim audience sync is ready until the user re-consents.
-            if not creds.has_scopes(SCOPES):
-                creds = None
+            token_data = json.loads(self.token_path.read_text(encoding="utf-8"))
+            granted_scopes = set(token_data.get("scopes", []))
+            # The JSON records the scopes actually granted by Google. Passing
+            # requested scopes into Credentials alone is not sufficient: an
+            # old upload-only refresh token would otherwise fail with a
+            # RefreshError when statistics are requested.
+            if set(SCOPES).issubset(granted_scopes):
+                creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
 
         # Refresh or get new credentials
         if not creds or not creds.valid:

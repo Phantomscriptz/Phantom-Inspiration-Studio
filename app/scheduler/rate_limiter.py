@@ -548,7 +548,7 @@ class RateLimiter:
                 state.last_rest_day = data.get("last_rest_day")
                 # Rebuild posts list
                 for p in data.get("posts", []):
-                    state.posts.append(PosttingRecord(**p))
+                    state.posts.append(PostingRecord(**p))
                 self._states[platform] = state
 
     def _save_state(self, platform: str, state: RateLimitState):

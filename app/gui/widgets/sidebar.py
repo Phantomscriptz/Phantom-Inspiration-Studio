@@ -28,8 +28,9 @@ class Sidebar(QWidget):
         self._items = [
             ("🏠  Dashboard", 0),
             ("🌐  Platforms", 1),
-            ("⚙   Settings", 2),
-            ("📖  Guide", 3),
+            ("📖  Guide", 2),
+            ("💾  Storage", 3),
+            ("📈  Analytics", 4),
         ]
 
         self.list = QListWidget()

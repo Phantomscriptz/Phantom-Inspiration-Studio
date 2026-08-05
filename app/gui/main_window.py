@@ -6,6 +6,8 @@ from PySide6.QtWidgets import (
     QStackedWidget,
     QStatusBar,
     QMessageBox,
+    QScrollArea,
+    QFrame,
 )
 from PySide6.QtCore import Qt
 
@@ -57,17 +59,19 @@ class MainWindow(QMainWindow):
         self.dashboard = Dashboard(self.settings, self.model_manager)
         self.stack.addWidget(self.dashboard)                    # index 0
 
-        # Page 1 — Platforms (placeholder; dashboard tabs still accessible)
+        # Page 1 — Platforms. This is the single authoritative platform view.
         platform_page = self._build_platforms_page()
         self.stack.addWidget(platform_page)                     # index 1
 
-        # Page 2 — Settings
-        settings_page = self._build_settings_page()
-        self.stack.addWidget(settings_page)                     # index 2
-
         from app.gui.widgets.guide_panel import GuidePanel
         self.guide_panel = GuidePanel(self.settings, self._troubleshooting_reset)
-        self.stack.addWidget(self.guide_panel)                  # index 3
+        self.stack.addWidget(self.guide_panel)                  # index 2
+        from app.gui.widgets.storage_panel import StoragePanel
+        self.storage_panel = StoragePanel()
+        self.stack.addWidget(self.storage_panel)                # index 3
+        from app.gui.widgets.analytics_panel import AnalyticsPanel
+        self.analytics_panel = AnalyticsPanel(self.settings)
+        self.stack.addWidget(self.analytics_panel)              # index 4
 
         layout.addWidget(self.sidebar)
         layout.addWidget(self.stack, 1)
@@ -90,19 +94,11 @@ class MainWindow(QMainWindow):
         lay.addWidget(self.platform_tabs)
         return page
 
-    def _build_settings_page(self) -> QWidget:
-        """A lightweight settings page."""
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        lay.setContentsMargins(20, 20, 20, 20)
-        from app.gui.widgets.content_settings import ContentSettingsPanel
-        self.settings_panel = ContentSettingsPanel(self.settings, self.model_manager)
-        lay.addWidget(self.settings_panel)
-        return page
-
     def _on_nav_changed(self, index: int):
         self.stack.setCurrentIndex(index)
-        labels = {0: "Dashboard", 1: "Platforms", 2: "Settings", 3: "Guide"}
+        if index == 4:
+            self.analytics_panel.refresh()
+        labels = {0: "Dashboard", 1: "Platforms", 2: "Guide", 3: "Storage", 4: "Analytics"}
         self.statusBar().showMessage(f"View: {labels.get(index, '')}")
 
     def create_statusbar(self):
@@ -118,6 +114,8 @@ class MainWindow(QMainWindow):
     def _on_start(self):
         """Start the automation pipeline."""
         self.dashboard.save_settings()
+        self.platform_tabs.save_all()
+        self.dashboard.show_log()
 
         # Get worker config from settings
         config = self.settings.to_worker_config()
@@ -143,7 +141,12 @@ class MainWindow(QMainWindow):
         self.worker.error_occurred.connect(self._on_worker_error)
 
         self.dashboard.log("🚀 Starting automation pipeline...")
-        self.dashboard.log(f"  Niche: {config.get('niche')}")
+        selected_niches = config.get("selected_niches", [])
+        if config.get("randomize_niches"):
+            niche_label = "random from " + ", ".join(selected_niches or ["all configured niches"])
+        else:
+            niche_label = ", ".join(selected_niches or [config.get("niche", "not selected")])
+        self.dashboard.log(f"  Niche selection: {niche_label}")
         self.dashboard.log(f"  Format: {config.get('video_format')}")
         self.dashboard.log(f"  Platforms: {', '.join(config.get('enabled_platforms', []))}")
         self.dashboard.log(f"  Max videos: {config.get('max_videos_per_run', 'unlimited')}")

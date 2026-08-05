@@ -14,7 +14,7 @@ from typing import Optional
 PLATFORM_HASHTAG_LIMITS = {
     "youtube": {
         "max_hashtags": 15,          # YT allows 15, shows 3 above title
-        "optimal_range": (10, 15),   # Use 10-15 for best discoverability
+        "optimal_range": (3, 5),     # Relevance beats filling the allowance
         "description_format": "hashtags_at_bottom",  # Put hashtags at end of description
         "title_hashtags": 0,         # Don't put hashtags in YT titles
         "notes": [
@@ -26,7 +26,7 @@ PLATFORM_HASHTAG_LIMITS = {
     },
     "tiktok": {
         "max_hashtags": 10,          # TikTok caption limit
-        "optimal_range": (4, 8),     # 4-8 is the sweet spot
+        "optimal_range": (3, 5),     # Keep caption readable and specific
         "description_format": "inline_with_caption",  # In the caption
         "title_hashtags": 0,
         "notes": [
@@ -38,12 +38,11 @@ PLATFORM_HASHTAG_LIMITS = {
     },
     "instagram": {
         "max_hashtags": 30,          # IG allows 30 per post
-        "optimal_range": (20, 25),   # 20-25 is the sweet spot (not all 30)
+        "optimal_range": (3, 5),     # A concise, specific set is safer than filler
         "description_format": "at_end_of_caption",  # After caption text
         "title_hashtags": 0,
         "notes": [
-            "Instagram: Use 20-25 hashtags (not all 30 — looks spammy)",
-            "Mix 5 large (1M+), 10 medium (100K-1M), 10 small (<100K)",
+            "Use only a concise set directly related to the actual Reel.",
             "Use Instagram's suggested hashtags feature",
             "Put hashtags in first comment OR caption (both work)",
         ],
@@ -197,16 +196,12 @@ NICHE_HASHTAG_BANKS = {
 # BROAD / TRENDING HASHTAGS (work across all niches)
 # ============================================================================
 
+# Generic reach-bait tags are intentionally not added. They waste limited
+# caption space and make a focused channel look indistinguishable from spam.
 GLOBAL_TRENDING_HASHTAGS = {
-    "tiktok": ["#fyp", "#foryou", "#foryoupage", "#viral", "#trending",
-               "#xyzbca", "#blowthisup"],
-    "instagram": ["#reels", "#reelsinstagram", "#instareels", "#viral",
-                  "#trending", "#explore", "#reelsvideo"],
-    "youtube": ["#shorts", "#viral", "#trending", "#youtube", "#new"],
-    "facebook": ["#reels", "#viral", "#trending"],
-    "x_twitter": ["#viral", "#trending"],
-    "rumble": ["#viral", "#trending", "#new"],
-    "pinterest": ["#trending", "#ideas", "#inspiration"],
+    "youtube": ["#shorts"],
+    "instagram": ["#reels"],
+    "facebook": ["#reels"],
 }
 
 
@@ -231,9 +226,9 @@ class HashtagOptimizer:
         # }
 
     Hashtag Rules:
-        - YouTube: Use ALL 15 hashtags (max allowed)
-        - Instagram: Use 20-25 hashtags (out of 30 max)
-        - TikTok: Use 4-8 hashtags (out of 10 max)
+        - YouTube: Use 3-5 directly relevant hashtags (15 is only a hard limit)
+        - Instagram: Use 3-5 directly relevant hashtags (30 is only a hard limit)
+        - TikTok: Use 3-5 directly relevant hashtags (10 is only a hard limit)
         - X: Use 1-2 hashtags (out of 3 max)
         - Snapchat: No hashtags
         - Pinterest: Use 5-10 hashtags (focus on keywords)
@@ -264,8 +259,8 @@ class HashtagOptimizer:
         global_tags = GLOBAL_TRENDING_HASHTAGS.get(platform, [])
 
         pool = []
-        pool.extend(niche_bank.get("broad", []))
         pool.extend(niche_bank.get("niche", []))
+        pool.extend(niche_bank.get("broad", []))
         pool.extend(niche_bank.get("engagement", []))
         pool.extend(global_tags)
         if extra_hashtags:
@@ -275,6 +270,9 @@ class HashtagOptimizer:
         seen = set()
         unique_pool = []
         for tag in pool:
+            # A hashtag cannot contain spaces and a tag has to be meaningful.
+            if not isinstance(tag, str) or not tag.startswith("#") or " " in tag:
+                continue
             tag_lower = tag.lower()
             if tag_lower not in seen:
                 seen.add(tag_lower)
@@ -339,9 +337,8 @@ class HashtagOptimizer:
                 f"{title}\n\n"
                 f"{narration_excerpt[:200]}\n\n"
                 f"{'—' * 20}\n"
-                f"🔔 Subscribe for more {niche.replace('_', ' ')} content!\n"
-                f"👍 Like if this gave you chills\n"
-                f"💬 Drop a comment with your theory\n\n"
+                f"Subscribe for more original {niche.replace('_', ' ')} videos.\n"
+                f"What idea from this video will you carry into today?\n\n"
                 f"{hashtag_str}\n\n"
                 f"#PhantomInspiration #PhantomScriptz"
             )
@@ -354,9 +351,8 @@ class HashtagOptimizer:
             desc = (
                 f"{narration_excerpt[:200]}\n\n"
                 f"{'—' * 15}\n"
-                f"🔔 Follow for daily {niche.replace('_', ' ')}\n"
-                f"👍 Double tap if you're brave enough\n"
-                f"💬 Tag someone who needs to see this\n\n"
+                f"Follow for original {niche.replace('_', ' ')} videos.\n"
+                f"Save this for the day you need it.\n\n"
                 f"{hashtag_str}"
             )
         elif platform == "x_twitter":
@@ -368,7 +364,7 @@ class HashtagOptimizer:
         elif platform == "facebook":
             desc = (
                 f"{narration_excerpt[:200]}\n\n"
-                f"Like & Share if you found this interesting!\n\n"
+                f"Share this with someone who may find it useful.\n\n"
                 f"{hashtag_str}"
             )
         elif platform == "rumble":

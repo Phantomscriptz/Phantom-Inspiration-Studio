@@ -47,7 +47,10 @@ class VideoConfig:
     @classmethod
     def for_short(cls) -> "VideoConfig":
         """Config optimized for short-form (9:16 vertical)."""
-        return cls(width=1080, height=1920, fps=30)
+        # FFmpeg/libass scales SRT style values from its subtitle canvas on
+        # some Windows builds.  These compact values render as readable
+        # mobile captions instead of covering the visual.
+        return cls(width=1080, height=1920, fps=30, subtitle_size=11, subtitle_outline=1)
 
     @classmethod
     def for_long(cls) -> "VideoConfig":
@@ -239,6 +242,66 @@ class VideoBuilder:
 
         return str(output_path)
 
+    def build_from_visual_segments(
+        self,
+        visual_paths: list[str],
+        segment_audio_paths: list[str],
+        audio: str,
+        output: str,
+        subtitles_file: Optional[str] = None,
+    ) -> str:
+        """Render a mix of stills and licensed motion clips per script segment."""
+        if not visual_paths or not segment_audio_paths:
+            raise ValueError("Visuals and segment audio are required for cinematic rendering.")
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        durations = [self._get_audio_duration(path) for path in segment_audio_paths]
+        clip_files = []
+        for index, (visual, duration) in enumerate(zip(visual_paths, durations)):
+            clip_path = str(output_path.parent / f"_clip_{index:03d}.mp4")
+            if self._is_video_file(visual):
+                self._make_video_clip(visual, duration, clip_path)
+            else:
+                self._make_image_clip(visual, duration, clip_path)
+            clip_files.append(clip_path)
+
+        concat_path = str(output_path.parent / "_concat.mp4")
+        self._concat_clips(clip_files, concat_path)
+        with_audio = str(output_path.parent / "_with_audio.mp4")
+        self._add_audio(concat_path, audio, with_audio)
+        current_video = with_audio
+        if subtitles_file and self.config.show_subtitles:
+            with_subtitles = str(output_path.parent / "_with_subs.mp4")
+            self._burn_subtitles(current_video, subtitles_file, with_subtitles)
+            current_video = with_subtitles
+        shutil.move(current_video, str(output_path))
+        self._cleanup(output_path.parent, clip_files, concat_path)
+        return str(output_path)
+
+    def build_looping_broll(
+        self,
+        broll_path: str,
+        audio: str,
+        output: str,
+        subtitles_file: Optional[str] = None,
+    ) -> str:
+        """Loop one creator-selected motion clip for the complete narration."""
+        output_path = Path(output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        duration = self._get_audio_duration(audio)
+        visual_only = str(output_path.parent / "_looping_broll.mp4")
+        self._make_video_clip(broll_path, duration, visual_only)
+        with_audio = str(output_path.parent / "_with_audio.mp4")
+        self._add_audio(visual_only, audio, with_audio)
+        current_video = with_audio
+        if subtitles_file and self.config.show_subtitles:
+            with_subtitles = str(output_path.parent / "_with_subs.mp4")
+            self._burn_subtitles(current_video, subtitles_file, with_subtitles)
+            current_video = with_subtitles
+        shutil.move(current_video, str(output_path))
+        self._cleanup(output_path.parent, [visual_only])
+        return str(output_path)
+
     # ------------------------------------------------------------------
     # Internal FFmpeg operations
     # ------------------------------------------------------------------
@@ -308,13 +371,37 @@ class VideoBuilder:
         cmd.append(output_path)
         self._run_ffmpeg(cmd)
 
+    def _make_video_clip(self, video_path: str, duration: float, output_path: str):
+        """Trim/loop a source clip and crop it safely to the target frame."""
+        cfg = self.config
+        vf = (
+            f"scale={cfg.width}:{cfg.height}:force_original_aspect_ratio=increase,"
+            f"crop={cfg.width}:{cfg.height},fps={cfg.fps}"
+        )
+        cmd = [
+            "ffmpeg", "-y", "-stream_loop", "-1", "-i", video_path,
+            "-t", str(duration), "-an", "-vf", vf,
+            "-c:v", cfg.codec, "-pix_fmt", cfg.pixel_format,
+            "-crf", str(cfg.crf), "-preset", cfg.preset, output_path,
+        ]
+        self._run_ffmpeg(cmd)
+
+    @staticmethod
+    def _is_video_file(path: str) -> bool:
+        return Path(path).suffix.lower() in {".mp4", ".mov", ".mkv", ".webm", ".avi"}
+
     def _concat_clips(self, clip_files: list[str], output_path: str):
         """Concatenate multiple video clips."""
         # Create concat list file
-        list_path = output_path + ".txt"
+        list_path = str(Path(output_path).resolve()) + ".txt"
         with open(list_path, "w") as f:
             for clip in clip_files:
-                f.write(f"file '{clip}'\n")
+                # FFmpeg interprets relative file entries relative to the list
+                # file.  The output directory was therefore duplicated on
+                # Windows (``output/output/_clip``). Use forward-slashed
+                # absolute paths so every generated clip is found reliably.
+                absolute_clip = Path(clip).resolve().as_posix()
+                f.write(f"file '{absolute_clip}'\n")
 
         cmd = [
             "ffmpeg", "-y",
@@ -363,16 +450,26 @@ class VideoBuilder:
     def _burn_subtitles(self, video_path: str, sub_path: str, output_path: str):
         """Burn SRT subtitles into video."""
         cfg = self.config
+        # FFmpeg filter arguments use ':' as a separator. Escape the Windows
+        # drive colon and use forward slashes so it can open the SRT reliably.
+        subtitle_path = Path(sub_path).resolve().as_posix().replace(":", r"\:").replace("'", r"\'")
         style = (
             f"FontName={cfg.subtitle_font},"
             f"FontSize={cfg.subtitle_size},"
             f"PrimaryColour={cfg.subtitle_color},"
-            f"Outline={cfg.subtitle_outline}"
+            f"Outline={cfg.subtitle_outline},"
+            "Alignment=2,MarginV=30"
         )
         cmd = [
             "ffmpeg", "-y",
             "-i", video_path,
-            "-vf", f"subtitles={sub_path}:force_style='{style}'",
+            # SRT has no native play resolution. Without original_size,
+            # libass scales FontSize from a legacy 288px canvas and makes
+            # otherwise modest mobile captions fill the entire screen.
+            "-vf", (
+                f"subtitles='{subtitle_path}':original_size={cfg.width}x{cfg.height}:"
+                f"force_style='{style}'"
+            ),
             "-c:v", cfg.codec,
             "-crf", str(cfg.crf),
             output_path,

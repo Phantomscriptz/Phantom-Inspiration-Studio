@@ -91,8 +91,12 @@ class AudioMixer:
         if background_music is None:
             background_music = self._select_default_music()
         if background_music is None:
-            # No music available, just normalize voiceover
-            shutil.copy(voiceover, output)
+            # Keep narration consistent even when the creator has not supplied music.
+            self._run_ffmpeg([
+                "ffmpeg", "-y", "-i", str(voiceover), "-af",
+                f"loudnorm=I={target_loudness}:TP=-1.5:LRA=11",
+                "-c:a", "libmp3lame", "-q:a", "2", str(output),
+            ])
             return str(output)
 
         bg_path = Path(background_music)
@@ -101,7 +105,7 @@ class AudioMixer:
         cmd = [
             "ffmpeg", "-y",
             "-i", str(voiceover),
-            "-i", str(bg_path),
+            "-stream_loop", "-1", "-i", str(bg_path),
             "-filter_complex",
             (
                 # Music: fade in/out, loop to match voice duration, set volume

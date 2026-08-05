@@ -7,6 +7,8 @@ No API key required. Runs entirely via Microsoft's free TTS service.
 import asyncio
 import random
 import edge_tts
+import subprocess
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -97,7 +99,9 @@ def get_voice_by_id(voice_id: str) -> Optional[tuple]:
 NICHE_VOICE_MAP = {
     "scary_stories": "horror_male",
     "reddit_stories": "narrator_male",
-    "motivational": "authoritative_male",
+    # A calm, unhurried voice suits supportive inspirational content better
+    # than the former hard-sell authoritative narrator.
+    "motivational": "narrator_female_soft",
     "finance": "narrator_male_deep",
     "true_crime": "storyteller_male",
     "did_you_know": "narrator_female",
@@ -121,6 +125,8 @@ class EdgeTTSProvider:
     def __init__(self, output_dir: str = "projects/_audio"):
         self.output_dir = Path(output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
+        self.last_backend = ""
+        self.fallback_count = 0
 
     async def _generate_async(
         self,
@@ -134,14 +140,81 @@ class EdgeTTSProvider:
         if output_path is None:
             output_path = str(self.output_dir / "voiceover.mp3")
 
-        communicate = edge_tts.Communicate(
-            text=text,
-            voice=voice,
-            rate=rate,
-            pitch=pitch,
+        last_error = None
+        # The Edge endpoint occasionally drops a WebSocket on Windows/VPNs.
+        # Retry the same neural request before declaring it unavailable.
+        for attempt in range(3):
+            try:
+                communicate = edge_tts.Communicate(
+                    text=text,
+                    voice=voice,
+                    rate=rate,
+                    pitch=pitch,
+                )
+                await communicate.save(output_path)
+                self.last_backend = "edge_neural"
+                return output_path
+            except Exception as exc:
+                last_error = exc
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+        # Piper is an offline neural model, unlike the two robotic Windows SAPI
+        # voices. It is intentionally reported in the run log, never passed
+        # off as the creator's selected cloud voice.
+        try:
+            path = self._generate_piper_fallback(text, output_path)
+            self.last_backend = "piper_local_neural"
+            self.fallback_count += 1
+            return path
+        except Exception as fallback_error:
+            raise RuntimeError(
+                "Neural voice generation failed and the local Piper fallback could not start. "
+                f"Cloud error: {type(last_error).__name__}: {last_error}. "
+                f"Local error: {type(fallback_error).__name__}: {fallback_error}"
+            ) from last_error
+
+    @staticmethod
+    def _generate_piper_fallback(text: str, output_path: str) -> str:
+        """Generate offline neural narration using the local Piper Amy model."""
+        model = Path("models/piper/en_US-amy-medium.onnx")
+        config = model.with_suffix(model.suffix + ".json")
+        if not model.exists() or not config.exists():
+            raise FileNotFoundError("Local Piper Amy model or its .onnx.json configuration is missing.")
+        output = Path(output_path).with_suffix(".wav").resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        completed = subprocess.run(
+            [sys.executable, "-m", "piper", "-m", str(model.resolve()), "-f", str(output), "--sentence-silence", "0.12"],
+            input=text, text=True, capture_output=True, check=False,
         )
-        await communicate.save(output_path)
-        return output_path
+        if completed.returncode != 0 or not output.exists() or output.stat().st_size < 1024:
+            raise RuntimeError((completed.stderr or completed.stdout or "Piper produced no usable audio.").strip())
+        return str(output)
+
+    @staticmethod
+    def _generate_windows_fallback(text: str, voice: str, output_path: str) -> str:
+        output = Path(output_path).with_suffix(".wav").resolve()
+        output.parent.mkdir(parents=True, exist_ok=True)
+        local_voice = "Microsoft Zira Desktop" if any(name in voice for name in ("Jenny", "Aria", "Emma", "Ava", "Michelle", "Ana", "Sonia", "Libby", "Maisie", "Natasha", "Clara", "Neerja")) else "Microsoft David Desktop"
+        # Escape only the values that are embedded into this fixed PowerShell
+        # call.  The generated WAV is standard PCM and works with FFmpeg.
+        def quote(value: str) -> str:
+            return value.replace("'", "''")
+        command = (
+            "Add-Type -AssemblyName System.Speech; "
+            "$s = New-Object System.Speech.Synthesis.SpeechSynthesizer; "
+            f"$s.SelectVoice('{quote(local_voice)}'); "
+            "$s.Rate = 0; "
+            f"$s.SetOutputToWaveFile('{quote(str(output))}'); "
+            f"$s.Speak('{quote(text)}'); "
+            "$s.Dispose()"
+        )
+        subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", command],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        return str(output)
 
     def generate(
         self,
