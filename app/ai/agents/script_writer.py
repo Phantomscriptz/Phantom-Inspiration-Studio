@@ -123,8 +123,11 @@ class ScriptWriter:
             )
         )
 
+        # A 35--55 second Short needs roughly 100 spoken words and a handful
+        # of image prompts.  Allowing 4K output tokens made a local 14B model
+        # spend several unnecessary minutes generating verbose JSON.
         script = self._generate_script_with_retry(
-            prompt=prompt, niche=niche, format_type="short_form", temperature=0.85, num_predict=4096,
+            prompt=prompt, niche=niche, format_type="short_form", temperature=0.85, num_predict=1400,
         )
         # Match the budget used by the prompt and the quality gate.  This
         # avoids accepting a concise JSON script that renders 25--30% shorter
@@ -144,7 +147,7 @@ class ScriptWriter:
             + json.dumps(script.to_dict(), ensure_ascii=False)
         )
         return self._generate_script_with_retry(
-            prompt=rewrite_prompt, niche=niche, format_type="short_form", temperature=0.75, num_predict=4096,
+            prompt=rewrite_prompt, niche=niche, format_type="short_form", temperature=0.75, num_predict=1400,
         )
 
     # ------------------------------------------------------------------

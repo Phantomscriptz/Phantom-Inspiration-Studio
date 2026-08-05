@@ -24,6 +24,7 @@ from app.rendering.audio_mixer import AudioMixer
 from app.services.cinematic_broll import CinematicBrollPlanner
 from app.services.content_quality import ContentQualityGate
 from app.services.whisperx_aligner import WhisperXAligner
+from app.services.generation_lock import GenerationLock
 from app.publishing.upload_orchestrator import UploadOrchestrator
 from app.scheduler.rate_limiter import PLATFORM_RULES
 from app.publishing.platform_profiles import (
@@ -45,6 +46,7 @@ class AutomationWorker(QThread):
     upload_complete = Signal(str, bool) # platform, success
     pipeline_complete = Signal(int)     # total videos produced this run
     error_occurred = Signal(str)        # error message
+    preview_update = Signal(int, int, str, str)  # scene, total, image path, narration
 
     def __init__(self, config: dict = None, parent=None):
         super().__init__(parent)
@@ -97,6 +99,14 @@ class AutomationWorker(QThread):
         """Main automation loop — runs until stopped."""
         self._stopped = False
         self._videos_produced = 0
+        generation_lock = GenerationLock()
+        acquired, message = generation_lock.acquire()
+        if not acquired:
+            self.status_change.emit("Waiting for the other local generation to finish")
+            self.error_occurred.emit(message)
+            self.log_message.emit(f"⚠️ {message}")
+            self.pipeline_complete.emit(0)
+            return
         max_videos = self.config.get("max_videos_per_run", 0)  # 0 = unlimited
         if self.config.get("require_review_before_publish", True):
             # A review run is always one video, even if an older settings file
@@ -107,76 +117,79 @@ class AutomationWorker(QThread):
         self.status_change.emit("Initializing components...")
 
         try:
-            self._init_components()
-        except Exception as e:
-            self.error_occurred.emit(f"Failed to initialize: {e}")
-            self.log_message.emit(f"❌ {e}")
-            return
+            try:
+                self._init_components()
+            except Exception as e:
+                self.error_occurred.emit(f"Failed to initialize: {e}")
+                self.log_message.emit(f"❌ {e}")
+                return
 
-        while not self._stopped:
-            # Check max videos limit
-            if max_videos > 0 and self._videos_produced >= max_videos:
-                self.log_message.emit(f"✅ Reached max videos ({max_videos}). Stopping.")
-                break
-
-            # Check daily limits for all enabled platforms
-            enabled_platforms = self.config.get("enabled_platforms", [])
-            if not enabled_platforms and not self.config.get("require_review_before_publish", True):
-                self.log_message.emit("⚠️ No platforms enabled. Waiting...")
-                self._sleep_or_stop(30)
-                continue
-
-            can_upload_any = self.config.get("require_review_before_publish", True) and not enabled_platforms
-            for platform in enabled_platforms:
-                can, reason = self._orchestrator.can_upload(platform)
-                if can:
-                    can_upload_any = True
+            while not self._stopped:
+                # Check max videos limit
+                if max_videos > 0 and self._videos_produced >= max_videos:
+                    self.log_message.emit(f"✅ Reached max videos ({max_videos}). Stopping.")
                     break
 
-            if not can_upload_any:
-                self.log_message.emit("⏳ All platforms rate-limited. Waiting 30 min...")
-                self._sleep_or_stop(1800)
-                continue
-
-            # Build separately rendered workflows. A vertical Short is never a
-            # resized copy of the long-form video.
-            produced_this_cycle = False
-            for video_format, platforms in self._build_workflows(enabled_platforms):
-                if self._stopped or (max_videos > 0 and self._videos_produced >= max_videos):
-                    break
-                if platforms and not any(self._orchestrator.can_upload(platform)[0] for platform in platforms):
+                # Check daily limits for all enabled platforms
+                enabled_platforms = self.config.get("enabled_platforms", [])
+                if not enabled_platforms and not self.config.get("require_review_before_publish", True):
+                    self.log_message.emit("⚠️ No platforms enabled. Waiting...")
+                    self._sleep_or_stop(30)
                     continue
-                try:
-                    self._produce_one_video(platforms, video_format)
-                    self._videos_produced += 1
-                    produced_this_cycle = True
-                except Exception as e:
-                    self.error_occurred.emit(f"Pipeline error: {e}")
-                    self.log_message.emit(f"❌ Pipeline error: {e}")
-                    # A bad pipeline step must not silently create a new script
-                    # every minute. Stop and let the creator see the real error.
-                    self._stopped = True
+
+                can_upload_any = self.config.get("require_review_before_publish", True) and not enabled_platforms
+                for platform in enabled_platforms:
+                    can, reason = self._orchestrator.can_upload(platform)
+                    if can:
+                        can_upload_any = True
+                        break
+
+                if not can_upload_any:
+                    self.log_message.emit("⏳ All platforms rate-limited. Waiting 30 min...")
+                    self._sleep_or_stop(1800)
+                    continue
+
+                # Build separately rendered workflows. A vertical Short is never a
+                # resized copy of the long-form video.
+                produced_this_cycle = False
+                for video_format, platforms in self._build_workflows(enabled_platforms):
+                    if self._stopped or (max_videos > 0 and self._videos_produced >= max_videos):
+                        break
+                    if platforms and not any(self._orchestrator.can_upload(platform)[0] for platform in platforms):
+                        continue
+                    try:
+                        self._produce_one_video(platforms, video_format)
+                        self._videos_produced += 1
+                        produced_this_cycle = True
+                    except Exception as e:
+                        self.error_occurred.emit(f"Pipeline error: {e}")
+                        self.log_message.emit(f"❌ Pipeline error: {e}")
+                        # A bad pipeline step must not silently create a new script
+                        # every minute. Stop and let the creator see the real error.
+                        self._stopped = True
+                        break
+                if not produced_this_cycle:
+                    self._sleep_or_stop(60)
+                    continue
+
+                # Do not make a completed one- or two-video review run sit idle
+                # for the next publishing gap before reporting completion.
+                if max_videos > 0 and self._videos_produced >= max_videos:
+                    self.log_message.emit(f"✅ Reached max videos ({max_videos}). Stopping.")
                     break
-            if not produced_this_cycle:
-                self._sleep_or_stop(60)
-                continue
 
-            # Do not make a completed one- or two-video review run sit idle
-            # for the next publishing gap before reporting completion.
-            if max_videos > 0 and self._videos_produced >= max_videos:
-                self.log_message.emit(f"✅ Reached max videos ({max_videos}). Stopping.")
-                break
+                # Wait between videos to respect the creator's selected pace.
+                gap_min = self.config.get("gap_between_videos_min", 30)
+                gap_max = self.config.get("gap_between_videos_max", 120)
+                wait_time = max(gap_min, gap_max)
+                self.log_message.emit(f"⏳ Waiting {wait_time}s before next video...")
+                self._sleep_or_stop(wait_time)
 
-            # Wait between videos to respect the creator's selected pace.
-            gap_min = self.config.get("gap_between_videos_min", 30)
-            gap_max = self.config.get("gap_between_videos_max", 120)
-            wait_time = max(gap_min, gap_max)
-            self.log_message.emit(f"⏳ Waiting {wait_time}s before next video...")
-            self._sleep_or_stop(wait_time)
-
-        self.status_change.emit("Stopped")
-        self.pipeline_complete.emit(self._videos_produced)
-        self.log_message.emit(f"🏁 Automation stopped. Videos produced: {self._videos_produced}")
+            self.status_change.emit("Stopped")
+            self.pipeline_complete.emit(self._videos_produced)
+            self.log_message.emit(f"🏁 Automation stopped. Videos produced: {self._videos_produced}")
+        finally:
+            generation_lock.release()
 
     # ------------------------------------------------------------------
     # Single video production pipeline
@@ -314,6 +327,9 @@ class AutomationWorker(QThread):
                 niche=niche,
                 width=render_config.width,
                 height=render_config.height,
+                on_scene_ready=lambda scene, total, path, narration: self.preview_update.emit(
+                    scene, total, path, narration
+                ),
             )
             self.log_message.emit(f"  Generated {len(image_paths)} images")
             for warning in self._image_manager.last_warnings:

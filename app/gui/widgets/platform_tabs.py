@@ -12,6 +12,7 @@ import json
 from datetime import datetime
 
 from app.config.settings import SettingsManager
+from app.services.monetization import program_for, progress_text
 
 
 class YouTubeAudienceSyncWorker(QThread):
@@ -160,6 +161,19 @@ class PlatformTab(QWidget):
 
         layout.addWidget(api_group)
 
+        # Monetization is useful context, but it must never be represented as
+        # guaranteed income.  Only metrics retrieved through a supported,
+        # official connection are used for progress calculations.
+        monetization = QGroupBox("Monetization progress")
+        monetization.setStyleSheet(api_group.styleSheet())
+        monetization_layout = QVBoxLayout(monetization)
+        self.monetization_label = QLabel()
+        self.monetization_label.setWordWrap(True)
+        self.monetization_label.setOpenExternalLinks(True)
+        self.monetization_label.setStyleSheet("color: #cbd5e1; font-size: 12px; line-height: 1.4;")
+        monetization_layout.addWidget(self.monetization_label)
+        layout.addWidget(monetization)
+
         # The platform form is deliberately compact. Use the remaining space
         # to explain its status instead of leaving a blank, confusing panel.
         readiness = QGroupBox("Publishing readiness")
@@ -176,6 +190,7 @@ class PlatformTab(QWidget):
         self._load_settings()
         self._refresh_connection_status()
         self._refresh_readiness()
+        self._refresh_monetization()
 
     def _load_settings(self):
         enabled = self.settings.get(f"platform_limits.{self.platform_key}.enabled", False)
@@ -314,6 +329,21 @@ class PlatformTab(QWidget):
             capability = "This destination is shown for planning and setup; its production publisher is not verified yet."
         state = "Enabled for a future reviewed upload." if enabled else "Disabled — no uploads will be sent here."
         self.readiness_label.setText(f"Current state: {state}\nConnection: {status}\n\n{capability}\n\nUse Generate-only until you have reviewed a complete video and its metadata.")
+
+    def _refresh_monetization(self, audience: dict | None = None):
+        """Show the creator's progress without claiming eligibility or income."""
+        program = program_for(self.platform_key)
+        audience = audience or {}
+        progress = progress_text(self.platform_key, audience)
+        link = (
+            f'<a href="{program.official_url}" style="color:#60a5fa;">Open official eligibility details</a>'
+            if program.official_url else ""
+        )
+        extra = f"<br><br>{program.secondary_target}" if program.secondary_target else ""
+        self.monetization_label.setText(
+            f"<b>{program.name}</b><br>{progress}{extra}<br><br>"
+            f"{program.overview}<br><span style='color:#94a3b8'>Eligibility is not a revenue guarantee; platform review and programme terms apply.</span><br>{link}"
+        )
 
     def add_extra_button(self, button: QPushButton):
         """Add a button to the API Connection section (e.g. Setup Guide)."""
@@ -459,6 +489,7 @@ class PlatformTabs(QTabWidget):
                 f"Audience: {subscribers} subscribers • {views} channel views • {stats.get('name', 'YouTube channel')}{suffix}"
             )
             self.tabs[key].audience_label.setStyleSheet("color: #22c55e; font-size: 12px;")
+            self.tabs[key]._refresh_monetization(stats)
 
     def _show_youtube_sync_needed(self):
         for key in ("youtube_long", "youtube_shorts"):

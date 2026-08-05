@@ -94,8 +94,8 @@ config/
 ### File content:
 ```json
 {
-  "client_key": "aw62euabt5wcwuax",
-  "client_secret": "W5QWIM9ejs5oPSlGxua4x2S9gWQwkSyU"
+  "client_key": "YOUR_TIKTOK_CLIENT_KEY",
+  "client_secret": "YOUR_TIKTOK_CLIENT_SECRET"
 }
 ```
 

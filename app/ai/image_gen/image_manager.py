@@ -6,7 +6,7 @@ with local Stable Diffusion as an optional upgrade.
 
 from pathlib import Path
 import hashlib
-from typing import Optional
+from typing import Callable, Optional
 
 from app.ai.image_gen.providers import (
     PollinationsProvider,
@@ -116,6 +116,7 @@ class ImageManager:
         niche: str = None,
         width: int = 1920,
         height: int = 1080,
+        on_scene_ready: Optional[Callable[[int, int, str, str], None]] = None,
     ) -> list[str]:
         """
         Generate images for all script segments.
@@ -141,6 +142,8 @@ class ImageManager:
                 image_prompt, width, height, niche, filename
             )
             paths.append(path)
+            if on_scene_ready:
+                on_scene_ready(i, len(segments), path, str(seg.get("narration", "")))
 
         return paths
 

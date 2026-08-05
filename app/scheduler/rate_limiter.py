@@ -26,7 +26,7 @@ PLATFORM_RULES = {
         "max_interval_minutes": 360,       # Don't wait too long (engagement dies)
         "best_hours_utc": [14, 15, 16, 17, 18, 19, 20, 21],  # US prime time
         "cooldown_after_bulk_hours": 6,    # After 3+ videos, wait 6h
-        "max_consecutive_days": 21,        # Post max 21 days straight, then take 1-2 off
+        "max_consecutive_days": 21,
         "rest_days_required": 2,
         "max_title_length": 100,
         "max_description_length": 5000,
@@ -39,10 +39,9 @@ PLATFORM_RULES = {
             "api_setup": "Google Cloud Console → YouTube Data API v3",
         },
         "rate_limit_notes": [
-            "First 48 hours are critical — YT tests your video",
-            "Don't delete and reupload — hurts channel",
-            "Consistent schedule beats burst uploads",
-            "Upload 2-3 hours before your audience peak time",
+            "Use official APIs and creator-controlled accounts only.",
+            "Do not delete/re-upload merely to manipulate distribution.",
+            "Use a sustainable schedule and review the actual YouTube Analytics data.",
         ],
     },
     "tiktok": {
@@ -74,13 +73,13 @@ PLATFORM_RULES = {
     },
     "instagram": {
         "name": "Instagram Reels",
-        "max_videos_per_day": 3,           # IG shadows 5+/day
+        "max_videos_per_day": 2,
         "max_videos_per_week": 14,
         "min_interval_minutes": 30,
         "max_interval_minutes": 360,
         "best_hours_utc": [14, 15, 16, 17, 20, 21],
         "cooldown_after_bulk_hours": 6,
-        "max_consecutive_days": 14,        # IG can shadowban for daily posting
+        "max_consecutive_days": 30,
         "rest_days_required": 2,
         "max_title_length": 2200,          # Caption
         "max_description_length": 2200,
@@ -92,10 +91,9 @@ PLATFORM_RULES = {
             "api_setup": "Facebook Developer Portal → Instagram Graph API",
         },
         "rate_limit_notes": [
-            "IG shadowbans accounts that post 5+ Reels/day",
-            "Use 20-25 hashtags (not all 30) for best reach",
-            "Post when your followers are most active (check Insights)",
-            "Reels under 15 seconds get remixed more",
+            "Do not claim that a posting cadence prevents enforcement; policy compliance and original value matter.",
+            "Use only relevant hashtags and review Insights for your actual audience.",
+            "Use a sustainable creator-selected schedule rather than bulk automation.",
         ],
     },
     "facebook": {

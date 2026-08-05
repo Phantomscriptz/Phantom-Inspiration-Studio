@@ -259,14 +259,17 @@ class VideoBuilder:
         clip_files = []
         for index, (visual, duration) in enumerate(zip(visual_paths, durations)):
             clip_path = str(output_path.parent / f"_clip_{index:03d}.mp4")
+            # Give every non-final scene enough tail to overlap the next one
+            # without shortening the final narration-led runtime.
+            clip_duration = duration + (self.config.transition_duration if index < len(durations) - 1 else 0)
             if self._is_video_file(visual):
-                self._make_video_clip(visual, duration, clip_path)
+                self._make_video_clip(visual, clip_duration, clip_path)
             else:
-                self._make_image_clip(visual, duration, clip_path)
+                self._make_image_clip(visual, clip_duration, clip_path)
             clip_files.append(clip_path)
 
         concat_path = str(output_path.parent / "_concat.mp4")
-        self._concat_clips(clip_files, concat_path)
+        self._crossfade_clips(clip_files, durations, concat_path)
         with_audio = str(output_path.parent / "_with_audio.mp4")
         self._add_audio(concat_path, audio, with_audio)
         current_video = with_audio
@@ -414,6 +417,44 @@ class VideoBuilder:
 
         # Remove list file
         Path(list_path).unlink(missing_ok=True)
+
+    def _crossfade_clips(self, clip_files: list[str], scene_durations: list[float], output_path: str):
+        """Blend adjacent visual scenes without changing narration duration."""
+        if len(clip_files) < 2 or self.config.transition_duration <= 0:
+            self._concat_clips(clip_files, output_path)
+            return
+
+        transition = min(float(self.config.transition_duration), 0.75)
+        inputs: list[str] = []
+        for clip in clip_files:
+            inputs.extend(["-i", clip])
+
+        # Each non-final input has a small extra tail.  Start the fade after
+        # its real narration duration, so the final visual timeline remains
+        # exactly the same length as the complete voiceover.
+        filters: list[str] = []
+        previous = "[0:v]"
+        elapsed = float(scene_durations[0])
+        for index in range(1, len(clip_files)):
+            output_label = f"[v{index}]"
+            filters.append(
+                f"{previous}[{index}:v]xfade=transition=fade:duration={transition:.3f}:"
+                f"offset={elapsed:.3f}{output_label}"
+            )
+            previous = output_label
+            elapsed += float(scene_durations[index])
+
+        cmd = [
+            "ffmpeg", "-y", *inputs,
+            "-filter_complex", ";".join(filters),
+            "-map", previous,
+            "-c:v", self.config.codec,
+            "-pix_fmt", self.config.pixel_format,
+            "-crf", str(self.config.crf),
+            "-preset", self.config.preset,
+            output_path,
+        ]
+        self._run_ffmpeg(cmd)
 
     def _add_audio(self, video_path: str, audio_path: str, output_path: str):
         """Add voiceover audio to video."""

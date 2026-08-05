@@ -134,11 +134,13 @@ class MainWindow(QMainWindow):
         self.worker = AutomationWorker(config)
         self.worker.log_message.connect(self.dashboard.log)
         self.worker.status_change.connect(self._on_status_change)
+        self.worker.status_change.connect(self.dashboard.set_preview_status)
         self.worker.progress_update.connect(self.dashboard.log_panel.set_progress)
         self.worker.video_generated.connect(self._on_video_generated)
         self.worker.upload_complete.connect(self._on_upload_complete)
         self.worker.pipeline_complete.connect(self._on_pipeline_complete)
         self.worker.error_occurred.connect(self._on_worker_error)
+        self.worker.preview_update.connect(self.dashboard.update_live_preview)
 
         self.dashboard.log("🚀 Starting automation pipeline...")
         selected_niches = config.get("selected_niches", [])

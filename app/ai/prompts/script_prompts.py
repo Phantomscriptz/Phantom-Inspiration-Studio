@@ -429,22 +429,24 @@ OUTPUT FORMAT (valid JSON):
     ]
 }}
 
-TITLE FORMULAS THAT WORK:
-1. "I Tried [X] for [Time] — Here's What Happened"
-2. "10 [Niche] Facts That Will Change How You Think"
-3. "The Dark Truth About [Topic] Nobody Talks About"
-4. "Why [Thing] Is Actually Terrifying"
-5. "You've Been Lied To About [Topic]"
-6. "The [Topic] Story They Don't Want You to Know"
-7. "What Happens When [X]? (The Answer Will Shock You)"
-8. "[Number] Things About [Topic] That Sound Fake But Are 100% Real"
-9. "Nobody Talks About [Topic] and It's Scary"
-10. "The Most [Adjective] [Niche] You'll See Today"
+TITLE PATTERNS TO ADAPT (only when truthful for the actual video):
+1. "The Small Step That Makes Starting Easier"
+2. "Why [Specific Situation] Feels So Hard — and What to Try Next"
+3. "A Calmer Way to Handle [Specific Everyday Challenge]"
+4. "What [Specific Lesson] Changes About [Specific Situation]"
+5. "When [Relatable Moment] Happens, Try This First"
+6. "The Part of [Topic] People Often Miss"
+7. "[Number] Practical Ways to [Specific, Modest Outcome]"
+8. "A Better Question to Ask When You Feel Stuck"
+9. "What to Remember After a Difficult Week"
+10. "The Quiet Skill Behind [Specific Goal]"
 
 RULES:
 - Max 100 characters for all platforms
-- Create a CURIOSITY GAP (make them NEED to click)
-- Avoid pure clickbait — deliver on the promise
+- Create honest curiosity by naming a relatable tension and a specific payoff.
+- Do not use unsupported superlatives, fear bait, fake scarcity, or phrases such as
+  "they don't want you to know", "you've been lied to", or "will shock you".
+- The title's promise must be answered by the script.
 - Each title should target a different psychological trigger"""
 
 

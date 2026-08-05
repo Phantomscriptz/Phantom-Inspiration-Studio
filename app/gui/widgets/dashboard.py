@@ -1,8 +1,9 @@
 from PySide6.QtWidgets import (
     QLabel, QPushButton, QFrame, QVBoxLayout, QHBoxLayout,
-    QWidget, QStackedWidget, QScrollArea,
+    QWidget, QStackedWidget, QScrollArea, QSplitter,
 )
 from PySide6.QtCore import Qt, Signal
+from PySide6.QtGui import QPixmap
 
 from app.gui.widgets.control_bar import ControlBar
 from app.gui.widgets.content_settings import ContentSettingsPanel
@@ -50,6 +51,65 @@ class StatCard(QFrame):
 
     def set_value(self, value: str):
         self.value_label.setText(value)
+
+
+class LivePreviewPanel(QFrame):
+    """Shows the newest scene while a render is being assembled."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setMinimumWidth(250)
+        self.setStyleSheet("""
+            QFrame { background: #16161a; border: 1px solid #303038; border-radius: 8px; }
+            QLabel { border: none; }
+        """)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(8)
+
+        title = QLabel("👁️ Live scene preview")
+        title.setStyleSheet("color: #ddd; font-weight: bold; font-size: 13px;")
+        layout.addWidget(title)
+
+        self.stage = QLabel("Waiting for a render…")
+        self.stage.setWordWrap(True)
+        self.stage.setStyleSheet("color: #6ea8fe; font-size: 11px;")
+        layout.addWidget(self.stage)
+
+        self.image = QLabel("Your generated visual will appear here.")
+        self.image.setAlignment(Qt.AlignCenter)
+        self.image.setWordWrap(True)
+        self.image.setMinimumSize(220, 390)
+        self.image.setStyleSheet("background: #0c0c0f; color: #777; border-radius: 6px; padding: 8px;")
+        layout.addWidget(self.image, 1)
+
+        self.narration = QLabel("")
+        self.narration.setWordWrap(True)
+        self.narration.setMaximumHeight(82)
+        self.narration.setStyleSheet("color: #c8c8cc; font-size: 11px; padding: 4px;")
+        layout.addWidget(self.narration)
+
+    def show_scene(self, scene: int, total: int, image_path: str, narration: str):
+        pixmap = QPixmap(image_path)
+        if pixmap.isNull():
+            self.stage.setText(f"Scene {scene} of {total} generated (preview unavailable)")
+            return
+        target = self.image.size()
+        self.image.setPixmap(pixmap.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.stage.setText(f"Scene {scene} of {total} generated")
+        self.narration.setText(f"“{narration.strip()}”" if narration.strip() else "")
+
+    def set_status(self, status: str):
+        """Keep the preview useful before the first visual exists."""
+        self.stage.setText(status)
+        if self.image.pixmap() is None:
+            self.image.setText(f"{status}\n\nThe first generated scene will appear here.")
+
+    def resizeEvent(self, event):
+        current = self.image.pixmap()
+        if current and not current.isNull():
+            self.image.setPixmap(current.scaled(self.image.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        super().resizeEvent(event)
 
 
 # Tab button style constants
@@ -126,7 +186,15 @@ class Dashboard(QWidget):
         self.tab_stack.addWidget(scroll)                        # index 1
 
         self.log_panel = LogPanel()
-        self.tab_stack.addWidget(self.log_panel)                # index 2
+        self.live_preview = LivePreviewPanel()
+        log_console = QSplitter(Qt.Horizontal)
+        log_console.setChildrenCollapsible(False)
+        log_console.addWidget(self.log_panel)
+        log_console.addWidget(self.live_preview)
+        log_console.setStretchFactor(0, 3)
+        log_console.setStretchFactor(1, 2)
+        log_console.setSizes([760, 360])
+        self.tab_stack.addWidget(log_console)                   # index 2
 
         # The configuration panels can exceed a laptop-sized window.  Keep the
         # start controls visible and make only the active content area scroll.
@@ -166,6 +234,13 @@ class Dashboard(QWidget):
 
     def log(self, message: str):
         self.log_panel.log(message)
+
+    def update_live_preview(self, scene: int, total: int, image_path: str, narration: str):
+        """Receive a worker signal once each AI scene is ready."""
+        self.live_preview.show_scene(scene, total, image_path, narration)
+
+    def set_preview_status(self, status: str):
+        self.live_preview.set_status(status)
 
     def update_stat(self, key: str, value: str):
         if key in self.stats_cards:
