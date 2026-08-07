@@ -251,8 +251,16 @@ class PlatformTab(QWidget):
 
     @staticmethod
     def _compact_button(button: QPushButton):
-        """Prevent action controls from expanding across a wide desktop window."""
-        button.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        """Keep actions readable without allowing them to fill the whole tab.
+
+        A Maximum/Fixed policy alone can collapse controls to a thin bar on
+        some Windows/Qt style combinations.  Explicit dimensions preserve the
+        text and make the action affordance usable for new customers.
+        """
+        button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        button.setMinimumHeight(36)
+        button.setMaximumHeight(36)
+        button.setMinimumWidth(230)
         button.setMaximumWidth(300)
 
     def _disconnect_account(self):
