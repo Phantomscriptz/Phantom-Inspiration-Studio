@@ -114,9 +114,15 @@ class PlatformTab(QWidget):
         # Keep the primary account actions on one deliberate row.  The former
         # vertical stack could be compressed by Qt on some Windows themes,
         # making the buttons overlap and hiding their labels.
-        self._account_actions_layout = QHBoxLayout()
+        # A fixed-height container prevents the help text below it from being
+        # painted into the same visual band on Windows/Qt styles.
+        actions_row = QWidget()
+        actions_row.setMinimumHeight(42)
+        actions_row.setMaximumHeight(42)
+        self._account_actions_layout = QHBoxLayout(actions_row)
+        self._account_actions_layout.setContentsMargins(0, 0, 0, 4)
         self._account_actions_layout.setSpacing(8)
-        api_layout.addLayout(self._account_actions_layout)
+        api_layout.addWidget(actions_row)
 
         self.auth_btn = QPushButton("🔑 Authorize")
         self.auth_btn.setStyleSheet("""
@@ -151,7 +157,7 @@ class PlatformTab(QWidget):
 
         self._account_actions_layout.addStretch(1)
 
-        self.api_info_label = QLabel("First-time setup: click to authorize this platform")
+        self.api_info_label = QLabel("First-time setup: click Authorize after importing the official client file, if one is required.")
         self.api_info_label.setStyleSheet("color: #888; font-size: 12px;")
         api_layout.addWidget(self.api_info_label)
 

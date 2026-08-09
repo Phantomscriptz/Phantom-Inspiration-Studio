@@ -14,7 +14,12 @@ class ProfilesPanel(QWidget):
         self.manager = ProfileManager()
         self.can_switch = can_switch or (lambda: True)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
         layout.setSpacing(14)
+
+        heading = QLabel("Channel profiles")
+        heading.setStyleSheet("font-size: 20px; font-weight: bold; color: #fff;")
+        layout.addWidget(heading)
 
         info = QGroupBox("Channel profiles")
         info_layout = QVBoxLayout(info)
@@ -24,9 +29,13 @@ class ProfilesPanel(QWidget):
         info_layout.addWidget(note)
         layout.addWidget(info)
 
+        profiles_group = QGroupBox("Your profiles")
+        profiles_layout = QVBoxLayout(profiles_group)
         self.list = QListWidget()
-        self.list.setMinimumHeight(220)
-        layout.addWidget(self.list)
+        self.list.setMinimumHeight(150)
+        self.list.setMaximumHeight(210)
+        self.list.setStyleSheet("QListWidget { border: 1px solid #3f3f46; border-radius: 6px; padding: 4px; } QListWidget::item { padding: 8px; }")
+        profiles_layout.addWidget(self.list)
 
         row = QHBoxLayout()
         create = QPushButton("Create channel profile")
@@ -36,7 +45,19 @@ class ProfilesPanel(QWidget):
         row.addWidget(create)
         row.addWidget(activate)
         row.addStretch(1)
-        layout.addLayout(row)
+        profiles_layout.addLayout(row)
+        layout.addWidget(profiles_group)
+
+        help_group = QGroupBox("How this works")
+        help_layout = QVBoxLayout(help_group)
+        help_text = QLabel(
+            "Create one profile per genuinely separate channel or brand. A profile keeps its content choices, platform limits, "
+            "and local authorization files together. Select a profile, then use Platforms to connect only that profile's accounts."
+        )
+        help_text.setWordWrap(True)
+        help_text.setStyleSheet("color: #cbd5e1;")
+        help_layout.addWidget(help_text)
+        layout.addWidget(help_group)
         layout.addStretch(1)
         self.refresh()
 
