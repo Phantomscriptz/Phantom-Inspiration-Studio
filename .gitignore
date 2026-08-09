@@ -49,6 +49,7 @@ config/*_client_secret.json
 config/*_token.json
 config/secrets.json
 config/.env
+profiles/
 app/config/*_credentials.json
 app/config/*_client_secret.json
 app/config/*_token.json

@@ -63,15 +63,24 @@ class MainWindow(QMainWindow):
         platform_page = self._build_platforms_page()
         self.stack.addWidget(platform_page)                     # index 1
 
+        from app.gui.widgets.profiles_panel import ProfilesPanel
+        self.profiles_panel = ProfilesPanel(can_switch=lambda: not (self.worker and self.worker.isRunning()))
+        self.profiles_panel.profile_activated.connect(self._reload_active_profile)
+        self.stack.addWidget(self.profiles_panel)                # index 2
+
+        from app.gui.widgets.setup_panel import SetupPanel
+        self.setup_panel = SetupPanel(self.settings, self.model_manager)
+        self.stack.addWidget(self.setup_panel)                   # index 3
+
         from app.gui.widgets.guide_panel import GuidePanel
         self.guide_panel = GuidePanel(self.settings, self._troubleshooting_reset)
-        self.stack.addWidget(self.guide_panel)                  # index 2
+        self.stack.addWidget(self.guide_panel)                  # index 4
         from app.gui.widgets.storage_panel import StoragePanel
         self.storage_panel = StoragePanel()
-        self.stack.addWidget(self.storage_panel)                # index 3
+        self.stack.addWidget(self.storage_panel)                # index 5
         from app.gui.widgets.analytics_panel import AnalyticsPanel
         self.analytics_panel = AnalyticsPanel(self.settings)
-        self.stack.addWidget(self.analytics_panel)              # index 4
+        self.stack.addWidget(self.analytics_panel)              # index 6
 
         layout.addWidget(self.sidebar)
         layout.addWidget(self.stack, 1)
@@ -96,10 +105,24 @@ class MainWindow(QMainWindow):
 
     def _on_nav_changed(self, index: int):
         self.stack.setCurrentIndex(index)
-        if index == 4:
+        if index == 3:
+            self.setup_panel.refresh()
+        if index == 6:
             self.analytics_panel.refresh()
-        labels = {0: "Dashboard", 1: "Platforms", 2: "Guide", 3: "Storage", 4: "Analytics"}
+        labels = {0: "Dashboard", 1: "Platforms", 2: "Profiles", 3: "Setup", 4: "Guide", 5: "Storage", 6: "Analytics"}
         self.statusBar().showMessage(f"View: {labels.get(index, '')}")
+
+    def _reload_active_profile(self):
+        """Reload all profile-bound screens after a deliberate profile switch."""
+        if self.worker and self.worker.isRunning():
+            QMessageBox.warning(self, "Generation active", "Stop generation before switching profiles.")
+            return
+        self.settings.load()
+        old = self.takeCentralWidget()
+        if old:
+            old.deleteLater()
+        self.create_ui()
+        self.statusBar().showMessage("Channel profile switched")
 
     def create_statusbar(self):
         """Create the status bar."""

@@ -109,6 +109,14 @@ class PlatformTab(QWidget):
             }
         """)
         api_layout = QVBoxLayout(api_group)
+        api_layout.setSpacing(10)
+
+        # Keep the primary account actions on one deliberate row.  The former
+        # vertical stack could be compressed by Qt on some Windows themes,
+        # making the buttons overlap and hiding their labels.
+        self._account_actions_layout = QHBoxLayout()
+        self._account_actions_layout.setSpacing(8)
+        api_layout.addLayout(self._account_actions_layout)
 
         self.auth_btn = QPushButton("🔑 Authorize")
         self.auth_btn.setStyleSheet("""
@@ -122,7 +130,7 @@ class PlatformTab(QWidget):
             }
             QPushButton:hover { background: #2563eb; }
         """)
-        api_layout.addWidget(self.auth_btn)
+        self._account_actions_layout.addWidget(self.auth_btn)
         self.auth_btn.clicked.connect(self._authorize)
         self._compact_button(self.auth_btn)
 
@@ -131,7 +139,7 @@ class PlatformTab(QWidget):
             self.import_btn.setToolTip("Import the client configuration downloaded from the platform developer portal.")
             self.import_btn.clicked.connect(self._import_oauth_client_json)
             self._compact_button(self.import_btn)
-            api_layout.addWidget(self.import_btn)
+            self._account_actions_layout.addWidget(self.import_btn)
 
         if self.platform_key in {"youtube_long", "youtube_shorts", "tiktok", "instagram"}:
             self.disconnect_btn = QPushButton("Disconnect account")
@@ -139,7 +147,9 @@ class PlatformTab(QWidget):
             self.disconnect_btn.setStyleSheet("QPushButton { background: #4b5563; color: white; border-radius: 6px; padding: 8px 16px; } QPushButton:hover { background: #374151; }")
             self.disconnect_btn.clicked.connect(self._disconnect_account)
             self._compact_button(self.disconnect_btn)
-            api_layout.addWidget(self.disconnect_btn)
+            self._account_actions_layout.addWidget(self.disconnect_btn)
+
+        self._account_actions_layout.addStretch(1)
 
         self.api_info_label = QLabel("First-time setup: click to authorize this platform")
         self.api_info_label.setStyleSheet("color: #888; font-size: 12px;")
@@ -157,6 +167,7 @@ class PlatformTab(QWidget):
 
         # Placeholder for platform-specific buttons (e.g. TikTok Setup Guide)
         self._extra_buttons_layout = QHBoxLayout()
+        self._extra_buttons_layout.setSpacing(8)
         api_layout.addLayout(self._extra_buttons_layout)
 
         layout.addWidget(api_group)
@@ -257,10 +268,13 @@ class PlatformTab(QWidget):
         some Windows/Qt style combinations.  Explicit dimensions preserve the
         text and make the action affordance usable for new customers.
         """
-        button.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        button.setSizePolicy(QSizePolicy.Minimum, QSizePolicy.Fixed)
         button.setMinimumHeight(36)
         button.setMaximumHeight(36)
-        button.setMinimumWidth(230)
+        # Do not force every action to 230 px: a three-button OAuth row then
+        # overflows smaller Windows displays.  The layout keeps each label at
+        # its natural readable width and shares the remaining row space.
+        button.setMinimumWidth(145)
         button.setMaximumWidth(300)
 
     def _disconnect_account(self):
