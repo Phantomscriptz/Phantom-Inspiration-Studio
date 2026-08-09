@@ -157,9 +157,13 @@ class PlatformTab(QWidget):
 
         self._account_actions_layout.addStretch(1)
 
-        self.api_info_label = QLabel("First-time setup: click Authorize after importing the official client file, if one is required.")
-        self.api_info_label.setStyleSheet("color: #888; font-size: 12px;")
-        api_layout.addWidget(self.api_info_label)
+        # Do not place a helper label directly below this row.  A few Windows
+        # Qt styles paint the label into the final pixels of the button row.
+        # The same instruction lives in the button tooltip and Setup Guide.
+        api_group.setToolTip(
+            "Import the official client JSON where required, then click Authorize. "
+            "Use Setup Guide for step-by-step instructions."
+        )
 
         audience_row = QHBoxLayout()
         self.audience_label = QLabel("Audience: not synced")
