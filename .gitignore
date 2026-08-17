@@ -46,6 +46,8 @@ projects/_test_quality/
 projects/_voice_connectivity_check/
 projects/_voice_samples/
 projects/_provider_smoke/
+projects/_rate_limits/
+projects/_upload_history/
 
 # Never commit customer OAuth secrets, API keys, or refresh tokens.
 config/*_credentials.json
