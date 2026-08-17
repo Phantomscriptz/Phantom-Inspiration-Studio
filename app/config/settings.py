@@ -49,6 +49,14 @@ class SettingsManager:
             "local_sd_url": "http://127.0.0.1:7860",
             "cinematic_broll": True,
             "broll_selected_clip": "",
+            # Motion is rendered locally with FFmpeg. Keep the defaults
+            # restrained: polished faceless channels use movement to support
+            # the narration, not to distract from it.
+            "video_effects_enabled": True,
+            "image_motion_effect": "slow_zoom_in",
+            "image_motion_strength": 0.08,
+            "transition_effect": "crossfade",
+            "transition_duration": 0.45,
 
             # Automation
             "max_videos_per_run": 1,          # one reviewable production at a time
@@ -94,6 +102,10 @@ class SettingsManager:
 
             # Publishing controls
             "require_review_before_publish": True,
+            # API uploads do not inherit YouTube Studio's browser-only upload
+            # defaults. Keep new automated uploads private to the creator's
+            # review link unless they deliberately choose another visibility.
+            "youtube_privacy": "unlisted",
             "require_source_review": True,
             "content_similarity_threshold": 0.72,
         }
@@ -182,8 +194,14 @@ class SettingsManager:
             "voice_selected": self.get("voice_selected", "random"),
             "cinematic_broll": self.get("cinematic_broll", True),
             "broll_selected_clip": self.get("broll_selected_clip", ""),
+            "video_effects_enabled": self.get("video_effects_enabled", True),
+            "image_motion_effect": self.get("image_motion_effect", "slow_zoom_in"),
+            "image_motion_strength": self.get("image_motion_strength", 0.08),
+            "transition_effect": self.get("transition_effect", "crossfade"),
+            "transition_duration": self.get("transition_duration", 0.45),
             "youtube_shorts_niche": self.get("youtube_shorts_niche", "motivational"),
             "require_review_before_publish": self.get("require_review_before_publish", True),
+            "youtube_privacy": self.get("youtube_privacy", "unlisted"),
             "max_videos_per_run": self.get("max_videos_per_run"),
             "gap_between_videos_min": self.get("gap_between_videos_min"),
             "gap_between_videos_max": self.get("gap_between_videos_max"),
@@ -198,6 +216,8 @@ class SettingsManager:
             "niche", "topic", "video_format", "short_duration", "long_duration",
             "youtube_shorts_niche", "language", "resolution", "fps", "video_codec",
             "crf", "ollama_model", "script_temperature", "voice_selected", "cinematic_broll",
+            "video_effects_enabled", "image_motion_effect", "transition_effect", "transition_duration",
+            "image_motion_strength",
             "image_provider", "local_sd_url", "max_videos_per_run",
             "gap_between_videos_min", "gap_between_videos_max", "auto_start",
             "require_review_before_publish",

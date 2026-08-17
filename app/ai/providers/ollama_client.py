@@ -1,6 +1,7 @@
 """Ollama API client — wraps the local Ollama server for LLM inference."""
 
 import json
+import time
 import requests
 from typing import Generator, Optional
 
@@ -11,6 +12,53 @@ class OllamaClient:
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url.rstrip("/")
         self._session = requests.Session()
+
+    def _reset_session(self) -> None:
+        """Discard a stale keep-alive socket after a local Ollama reset."""
+        try:
+            self._session.close()
+        finally:
+            self._session = requests.Session()
+
+    def _post_generation(self, endpoint: str, payload: dict, *, stream: bool = False):
+        """Make a local generation request with narrow, recoverable retries.
+
+        Ollama can briefly reset its HTTP socket while moving a model between
+        CPU/GPU memory.  That is not a bad script response and should not end
+        an otherwise valid automation run on the first disconnect.
+        """
+        last_error = None
+        for attempt in range(1, 4):
+            try:
+                response = self._session.post(
+                    f"{self.base_url}{endpoint}",
+                    json=payload,
+                    stream=stream,
+                    # A separate connect/read timeout gives slow local models
+                    # time to write a structured script without an infinite UI
+                    # hang.  8k context also keeps the 8B model stable on PCs
+                    # with modest VRAM.
+                    timeout=(15, 420),
+                )
+                response.raise_for_status()
+                return response
+            except requests.RequestException as exc:
+                last_error = exc
+                self._reset_session()
+                if attempt < 3:
+                    time.sleep(attempt * 2)
+                    # Health check is deliberately best-effort; the following
+                    # request is the authoritative check and yields the final
+                    # actionable error if Ollama is truly unavailable.
+                    try:
+                        self._session.get(f"{self.base_url}/api/tags", timeout=5)
+                    except requests.RequestException:
+                        pass
+        raise ConnectionError(
+            "Ollama disconnected while generating the script after 3 recovery attempts. "
+            "Try the stable Llama 3.1 8B model, then check that Ollama is running. "
+            f"Last error: {last_error}"
+        ) from last_error
 
     # ------------------------------------------------------------------
     # Health / model management
@@ -70,10 +118,12 @@ class OllamaClient:
             "model": model,
             "prompt": prompt,
             "stream": False,
+            "keep_alive": "10m",
             "options": {
                 "temperature": temperature,
                 "top_p": top_p,
                 "num_predict": num_predict,
+                "num_ctx": 8192,
             },
         }
         if system:
@@ -83,12 +133,7 @@ class OllamaClient:
         if format:
             payload["format"] = format
 
-        r = self._session.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-            timeout=300,
-        )
-        r.raise_for_status()
+        r = self._post_generation("/api/generate", payload)
         return r.json().get("response", "")
 
     def generate_json(
@@ -131,21 +176,17 @@ class OllamaClient:
             "model": model,
             "prompt": prompt,
             "stream": True,
+            "keep_alive": "10m",
             "options": {
                 "temperature": temperature,
                 "num_predict": num_predict,
+                "num_ctx": 8192,
             },
         }
         if system:
             payload["system"] = system
 
-        r = self._session.post(
-            f"{self.base_url}/api/generate",
-            json=payload,
-            stream=True,
-            timeout=300,
-        )
-        r.raise_for_status()
+        r = self._post_generation("/api/generate", payload, stream=True)
         for line in r.iter_lines():
             if line:
                 chunk = json.loads(line)
@@ -176,20 +217,17 @@ class OllamaClient:
             "model": model,
             "messages": messages,
             "stream": False,
+            "keep_alive": "10m",
             "options": {
                 "temperature": temperature,
                 "num_predict": num_predict,
+                "num_ctx": 8192,
             },
         }
         if format:
             payload["format"] = format
 
-        r = self._session.post(
-            f"{self.base_url}/api/chat",
-            json=payload,
-            timeout=300,
-        )
-        r.raise_for_status()
+        r = self._post_generation("/api/chat", payload)
         return r.json().get("message", {}).get("content", "")
 
 

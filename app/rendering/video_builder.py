@@ -27,11 +27,17 @@ class VideoConfig:
 
     # Ken Burns effect
     ken_burns: bool = True
-    ken_burns_zoom: float = 1.08   # 8% zoom
+    # A controlled 10% push is visible on mobile without becoming the
+    # distracting "slideshow zoom" common in low-effort Shorts.
+    ken_burns_zoom: float = 1.10
     ken_burns_duration: float = 0.5  # seconds for zoom transition
+    image_motion_effect: str = "slow_zoom_in"
 
     # Transitions
-    transition_duration: float = 0.3
+    # A half-second dissolve makes the change of visual feel intentional
+    # while preserving a brisk enough rhythm for short-form viewing.
+    transition_duration: float = 0.45
+    transition_effect: str = "fade"
 
     # Subtitles
     show_subtitles: bool = True
@@ -40,6 +46,7 @@ class VideoConfig:
     subtitle_color: str = "&HFFFFFF"  # White (ASS format)
     subtitle_outline: int = 3
     subtitle_position: str = "bottom"  # bottom, center, top
+    subtitle_margin_v: int = 80
 
     # Background
     bg_color: str = "black"
@@ -50,7 +57,16 @@ class VideoConfig:
         # FFmpeg/libass scales SRT style values from its subtitle canvas on
         # some Windows builds.  These compact values render as readable
         # mobile captions instead of covering the visual.
-        return cls(width=1080, height=1920, fps=30, subtitle_size=11, subtitle_outline=1)
+        # Keep captions compact and inside the lower safe zone.  The visual
+        # centre is reserved for the image/story, while a 26-point ASS margin
+        # maps to roughly 170px on a 1920px vertical render and keeps
+        # text clear of platform navigation and caption overlays.
+        return cls(
+            width=1080, height=1920, fps=30,
+            # libass scales subtitle points against the vertical frame. Keep
+            # Shorts captions readable without hiding the visual or subject.
+            subtitle_size=7, subtitle_outline=2, subtitle_margin_v=26,
+        )
 
     @classmethod
     def for_long(cls) -> "VideoConfig":
@@ -343,15 +359,21 @@ class VideoBuilder:
         fps = cfg.fps
 
         if cfg.ken_burns:
-            # Ken Burns: slow zoom in
-            zoom_rate = cfg.ken_burns_zoom ** (1 / (duration * fps))
+            # Purposefully subtle motion: enough depth for static imagery,
+            # without the hyperactive zoom commonly associated with low-effort
+            # slideshows.  FFmpeg's zoompan starts at zoom=1 for each scene.
+            zoom_rate = (cfg.ken_burns_zoom - 1.0) / max(duration * fps, 1)
+            if cfg.image_motion_effect == "slow_zoom_out":
+                zoom_expr = f"if(eq(on\\,0)\\,{cfg.ken_burns_zoom:.3f}\\,max(1.0\\,zoom-{zoom_rate:.7f}))"
+            else:
+                zoom_expr = f"min(zoom+{zoom_rate:.7f}\\,{cfg.ken_burns_zoom:.3f})"
             vf = (
                 f"scale={cfg.width * 2}:{cfg.height * 2},"
-                f"zoompan=z='min({zoom_rate}\\,1.5)':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
-                f":d={int(duration * fps)}:s={cfg.width}x{cfg.height}:fps={fps}"
+                f"zoompan=z='{zoom_expr}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'"
+                f":d={int(duration * fps)}:s={cfg.width}x{cfg.height}:fps={fps},setsar=1"
             )
         else:
-            vf = f"scale={cfg.width}:{cfg.height},fps={fps}"
+            vf = f"scale={cfg.width}:{cfg.height},fps={fps},setsar=1"
 
         cmd = ["ffmpeg", "-y", "-loop", "1", "-i", image_path, "-t", str(duration)]
 
@@ -425,6 +447,11 @@ class VideoBuilder:
             return
 
         transition = min(float(self.config.transition_duration), 0.75)
+        effect = self.config.transition_effect or "fade"
+        # Limit UI choices to transitions that remain professional at a fast
+        # mobile pacing. These are native xfade transition names.
+        if effect not in {"fade", "fadeblack", "slideleft"}:
+            effect = "fade"
         inputs: list[str] = []
         for clip in clip_files:
             inputs.extend(["-i", clip])
@@ -438,7 +465,7 @@ class VideoBuilder:
         for index in range(1, len(clip_files)):
             output_label = f"[v{index}]"
             filters.append(
-                f"{previous}[{index}:v]xfade=transition=fade:duration={transition:.3f}:"
+                f"{previous}[{index}:v]xfade=transition={effect}:duration={transition:.3f}:"
                 f"offset={elapsed:.3f}{output_label}"
             )
             previous = output_label
@@ -499,7 +526,7 @@ class VideoBuilder:
             f"FontSize={cfg.subtitle_size},"
             f"PrimaryColour={cfg.subtitle_color},"
             f"Outline={cfg.subtitle_outline},"
-            "Alignment=2,MarginV=30"
+            f"Alignment=2,MarginV={cfg.subtitle_margin_v}"
         )
         cmd = [
             "ffmpeg", "-y",
@@ -509,7 +536,7 @@ class VideoBuilder:
             # otherwise modest mobile captions fill the entire screen.
             "-vf", (
                 f"subtitles='{subtitle_path}':original_size={cfg.width}x{cfg.height}:"
-                f"force_style='{style}'"
+                f"force_style='{style}',setsar=1"
             ),
             "-c:v", cfg.codec,
             "-crf", str(cfg.crf),

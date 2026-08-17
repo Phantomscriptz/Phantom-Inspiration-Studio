@@ -2,7 +2,7 @@
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox,
-    QLabel, QComboBox, QLineEdit, QSpinBox,
+    QLabel, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox,
     QCheckBox, QPushButton, QDialog, QDialogButtonBox, QScrollArea, QTextEdit, QListView,
     QFileDialog, QMessageBox, QFormLayout, QTabWidget,
 )
@@ -353,24 +353,23 @@ class ContentSettingsPanel(QWidget):
         self.voice_combo.setStyleSheet(self._voice_combo_style())
         self.voice_combo.setMinimumWidth(430)
         voice_view = QListView(self.voice_combo)
-        voice_view.setMinimumWidth(520)
+        voice_view.setMinimumWidth(560)
         voice_view.setTextElideMode(Qt.ElideNone)
         self.voice_combo.setView(voice_view)
-        verified_voice_count = 0
+        self.voice_combo.setMaxVisibleItems(12)
+        cached_voice_count = 0
         for display_name, voice_id, gender, accent, desc in ENGLISH_VOICES:
-            if not has_playable_voice_sample(voice_id):
-                continue
             self.voice_combo.addItem(display_name, voice_id)
-            verified_voice_count += 1
+            if has_playable_voice_sample(voice_id):
+                cached_voice_count += 1
             self.voice_combo.setItemData(
                 self.voice_combo.count() - 1,
                 f"{display_name}\n{gender} • {accent} accent — {desc}",
                 Qt.ToolTipRole,
             )
-        self.voice_combo.insertSeparator(verified_voice_count)
         self.voice_combo.insertItem(0, "🎲 Recommended verified voice", "random")
         voice_row.addWidget(self.voice_combo)
-        self.preview_btn = QPushButton("▶ Get / play exact sample")
+        self.preview_btn = QPushButton("▶ Download / play sample")
         self.preview_btn.setMinimumHeight(34)
         self.preview_btn.setEnabled(False)
         self.preview_btn.clicked.connect(self._toggle_voice_preview)
@@ -378,7 +377,11 @@ class ContentSettingsPanel(QWidget):
         voice_row.addStretch()
         voice_layout.addLayout(voice_row)
 
-        self.voice_desc_label = QLabel(f"{verified_voice_count} verified voice samples are available on this computer. Unverified voices are hidden until their sample can be downloaded successfully.")
+        self.voice_desc_label = QLabel(
+            f"{len(ENGLISH_VOICES)} curated neural voices are available; "
+            f"{cached_voice_count} samples are already stored locally. "
+            "Select any voice to download its exact short preview once, then it stays available offline."
+        )
         self.voice_desc_label.setStyleSheet("color: #888; font-style: italic; padding: 2px 8px;")
         self.voice_desc_label.setWordWrap(True)
         voice_layout.addWidget(self.voice_desc_label)
@@ -432,6 +435,55 @@ class ContentSettingsPanel(QWidget):
         visuals_layout.addWidget(loop_note)
         self._refresh_broll_status()
         layout.addWidget(visuals_group)
+
+        # --- Video effects ---
+        effects_group = QGroupBox("Video Effects")
+        effects_group.setStyleSheet(self._group_style())
+        effects_layout = QVBoxLayout(effects_group)
+        self.video_effects_enabled = QCheckBox("Enable subtle image motion and scene transitions")
+        self.video_effects_enabled.setStyleSheet("font-size: 12px; color: #d1d5db; padding: 3px;")
+        self.video_effects_enabled.setToolTip("Uses FFmpeg locally; Adobe, Blender, and DaVinci are not required.")
+        effects_layout.addWidget(self.video_effects_enabled)
+        self.effects_note = QLabel("Recommended: a slow push-in with a short dissolve. This keeps AI visuals feeling intentional without distracting from the narration.")
+        self.effects_note.setWordWrap(True)
+        self.effects_note.setStyleSheet("color: #888; font-size: 12px; padding: 2px 8px;")
+        effects_layout.addWidget(self.effects_note)
+        effect_row = QHBoxLayout()
+        effect_row.addWidget(QLabel("Image motion:"))
+        self.image_motion_combo = QComboBox()
+        self.image_motion_combo.setStyleSheet(self._combo_style())
+        self.image_motion_combo.addItem("Slow push in (recommended)", "slow_zoom_in")
+        self.image_motion_combo.addItem("Slow pull back", "slow_zoom_out")
+        self.image_motion_combo.addItem("Still images", "still")
+        effect_row.addWidget(self.image_motion_combo, 1)
+        effects_layout.addLayout(effect_row)
+        strength_row = QHBoxLayout()
+        strength_row.addWidget(QLabel("Motion amount:"))
+        self.image_motion_strength = QComboBox()
+        self.image_motion_strength.setStyleSheet(self._combo_style())
+        self.image_motion_strength.addItem("Subtle — 6% (calm/meditation)", 0.06)
+        self.image_motion_strength.addItem("Balanced — 8% (recommended)", 0.08)
+        self.image_motion_strength.addItem("Noticeable — 10%", 0.10)
+        self.image_motion_strength.addItem("Strong — 14% (use sparingly)", 0.14)
+        strength_row.addWidget(self.image_motion_strength, 1)
+        effects_layout.addLayout(strength_row)
+        transition_row = QHBoxLayout()
+        transition_row.addWidget(QLabel("Scene transition:"))
+        self.transition_combo = QComboBox()
+        self.transition_combo.setStyleSheet(self._combo_style())
+        self.transition_combo.addItem("Soft dissolve (recommended)", "fade")
+        self.transition_combo.addItem("Fade through black", "fadeblack")
+        self.transition_combo.addItem("Gentle slide", "slideleft")
+        transition_row.addWidget(self.transition_combo, 1)
+        transition_row.addWidget(QLabel("Length:"))
+        self.transition_duration = QDoubleSpinBox()
+        self.transition_duration.setRange(0.20, 0.75)
+        self.transition_duration.setSingleStep(0.05)
+        self.transition_duration.setSuffix(" sec")
+        self.transition_duration.setStyleSheet(self._spin_style())
+        transition_row.addWidget(self.transition_duration)
+        effects_layout.addLayout(transition_row)
+        layout.addWidget(effects_group)
 
         # --- AI Settings (simplified) ---
         ai_group = QGroupBox("AI Model")
@@ -578,7 +630,7 @@ class ContentSettingsPanel(QWidget):
     def _on_voice_changed(self, index):
         voice_id = self.voice_combo.currentData()
         self.media_player.stop()
-        self.preview_btn.setText("▶ Get / play exact sample")
+        self.preview_btn.setText("▶ Download / play sample")
         self.preview_btn.setEnabled(voice_id != "random")
         if voice_id == "random":
             self.voice_desc_label.setText(
@@ -601,9 +653,24 @@ class ContentSettingsPanel(QWidget):
             return
         path = voice_sample_path(voice_id)
         if not has_playable_voice_sample(voice_id):
-            self.voice_desc_label.setText("This voice is not verified on this computer yet, so it cannot be previewed or selected.")
+            if self.preview_worker and self.preview_worker.isRunning():
+                return
+            self.preview_btn.setEnabled(False)
+            self.preview_btn.setText("Downloading sample…")
+            self.voice_desc_label.setText("Downloading the exact five-second neural sample. It will be saved locally when complete.")
+            self.preview_worker = ExactVoicePreviewWorker(voice_id, self)
+            self.preview_worker.ready.connect(self._play_voice_preview)
+            self.preview_worker.failed.connect(self._voice_preview_failed)
+            self.preview_worker.finished.connect(self._clear_preview_worker)
+            self.preview_worker.start()
             return
         self._play_voice_preview(str(path))
+
+    def _clear_preview_worker(self):
+        """Release the completed background preview worker safely."""
+        if self.preview_worker and not self.preview_worker.isRunning():
+            self.preview_worker.deleteLater()
+            self.preview_worker = None
 
     def _play_voice_preview(self, path: str):
         # Clear the old source first. Some Windows media backends otherwise
@@ -613,17 +680,17 @@ class ContentSettingsPanel(QWidget):
         self.media_player.setSource(QUrl.fromLocalFile(path))
         self.media_player.play()
         self.preview_btn.setEnabled(True)
-        self.preview_btn.setText("■ Stop exact sample")
+        self.preview_btn.setText("■ Stop sample")
         self.voice_desc_label.setText(f"Exact cached preview: {Path(path).name}")
 
     def _voice_preview_failed(self, message: str):
         self.preview_btn.setEnabled(True)
-        self.preview_btn.setText("▶ Get / play exact sample")
+        self.preview_btn.setText("▶ Download / play sample")
         self.voice_desc_label.setText(f"Preview unavailable: {message}")
 
     def _on_preview_state_changed(self, state):
         if state != QMediaPlayer.PlayingState:
-            self.preview_btn.setText("▶ Get / play exact sample")
+            self.preview_btn.setText("▶ Download / play sample")
 
     def _open_broll_folder(self):
         folder = Path("assets/stock_videos").resolve()
@@ -801,6 +868,18 @@ class ContentSettingsPanel(QWidget):
         self.gap_max.setValue(self.settings.get("gap_between_videos_max", 120))
         self.review_before_publish.setChecked(self.settings.get("require_review_before_publish", True))
         self.cinematic_broll.setChecked(self.settings.get("cinematic_broll", True))
+        self.video_effects_enabled.setChecked(self.settings.get("video_effects_enabled", True))
+        self._set_effect_controls_enabled(self.video_effects_enabled.isChecked())
+        saved_transition = self.settings.get("transition_effect", "fade")
+        if saved_transition == "crossfade":
+            saved_transition = "fade"
+        for combo, value in ((self.image_motion_combo, self.settings.get("image_motion_effect", "slow_zoom_in")), (self.transition_combo, saved_transition)):
+            index = combo.findData(value)
+            combo.setCurrentIndex(max(index, 0))
+        saved_strength = float(self.settings.get("image_motion_strength", 0.08))
+        strength_index = min(range(self.image_motion_strength.count()), key=lambda i: abs(float(self.image_motion_strength.itemData(i)) - saved_strength))
+        self.image_motion_strength.setCurrentIndex(strength_index)
+        self.transition_duration.setValue(float(self.settings.get("transition_duration", 0.45)))
         self._refresh_broll_status()
         self.broll_clip_combo.setEnabled(self.cinematic_broll.isChecked())
 
@@ -827,6 +906,19 @@ class ContentSettingsPanel(QWidget):
             lambda checked: self.settings.set("require_review_before_publish", checked)
         )
         self.cinematic_broll.toggled.connect(self._on_broll_toggled)
+        self.video_effects_enabled.toggled.connect(self._on_video_effects_toggled)
+        self.image_motion_combo.currentIndexChanged.connect(
+            lambda _index: self.settings.set("image_motion_effect", self.image_motion_combo.currentData())
+        )
+        self.image_motion_strength.currentIndexChanged.connect(
+            lambda _index: self.settings.set("image_motion_strength", float(self.image_motion_strength.currentData()))
+        )
+        self.transition_combo.currentIndexChanged.connect(
+            lambda _index: self.settings.set("transition_effect", self.transition_combo.currentData())
+        )
+        self.transition_duration.valueChanged.connect(
+            lambda value: self.settings.set("transition_duration", round(float(value), 2))
+        )
         self.broll_clip_combo.currentIndexChanged.connect(
             lambda _index: self.settings.set("broll_selected_clip", self.broll_clip_combo.currentData() or "")
         )
@@ -844,10 +936,24 @@ class ContentSettingsPanel(QWidget):
         self.settings.set("require_review_before_publish", self.review_before_publish.isChecked())
         self.settings.set("cinematic_broll", self.cinematic_broll.isChecked())
         self.settings.set("broll_selected_clip", self.broll_clip_combo.currentData() or "")
+        self.settings.set("video_effects_enabled", self.video_effects_enabled.isChecked())
+        self.settings.set("image_motion_effect", self.image_motion_combo.currentData())
+        self.settings.set("image_motion_strength", float(self.image_motion_strength.currentData()))
+        self.settings.set("transition_effect", self.transition_combo.currentData())
+        self.settings.set("transition_duration", round(float(self.transition_duration.value()), 2))
 
     def _on_broll_toggled(self, checked: bool):
         self.settings.set("cinematic_broll", checked)
         self.broll_clip_combo.setEnabled(checked)
+
+    def _on_video_effects_toggled(self, checked: bool):
+        self.settings.set("video_effects_enabled", checked)
+        self._set_effect_controls_enabled(checked)
+
+    def _set_effect_controls_enabled(self, enabled: bool):
+        """Grey out dependent controls when effects are intentionally off."""
+        for control in (self.image_motion_combo, self.image_motion_strength, self.transition_combo, self.transition_duration):
+            control.setEnabled(enabled)
 
     # ------------------------------------------------------------------
     # Styles

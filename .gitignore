@@ -49,10 +49,14 @@ config/*_client_secret.json
 config/*_token.json
 config/secrets.json
 config/.env
+config/settings.json
 profiles/
 app/config/*_credentials.json
 app/config/*_client_secret.json
 app/config/*_token.json
+
+# Runtime markers are local state, never product source.
+projects/_runtime/
 
 # Models
 models/

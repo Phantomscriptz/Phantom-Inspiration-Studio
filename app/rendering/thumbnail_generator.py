@@ -174,18 +174,37 @@ class ThumbnailGenerator:
 
         # Create base image
         if background_image and Path(background_image).exists():
-            img = Image.open(background_image).resize((width, height))
-            # Darken the background
-            enhancer = ImageEnhance.Brightness(img)
-            img = enhancer.enhance(0.4)
+            # Use the actual story visual as the focal image rather than a
+            # generic gradient.  Crop-to-fill makes vertical short imagery
+            # work in a 16:9 long-form thumbnail as well.
+            source = Image.open(background_image).convert("RGB")
+            scale = max(width / source.width, height / source.height)
+            resized = source.resize((int(source.width * scale), int(source.height * scale)), Image.LANCZOS)
+            left = max(0, (resized.width - width) // 2)
+            top = max(0, (resized.height - height) // 2)
+            img = resized.crop((left, top, left + width, top + height))
+            img = ImageEnhance.Contrast(img).enhance(1.12)
+            img = ImageEnhance.Color(img).enhance(1.08)
         else:
             img = self._create_gradient_bg(width, height, style["bg_colors"])
 
         draw = ImageDraw.Draw(img)
 
-        # Add title text with outline
+        # A left-to-right overlay preserves the scene focal point while making
+        # a short hook readable at feed size.
+        overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+        overlay_draw = ImageDraw.Draw(overlay)
+        for x in range(int(width * 0.72)):
+            alpha = int(205 * (1 - x / (width * 0.78)))
+            overlay_draw.line([(x, 0), (x, height)], fill=(0, 0, 0, max(0, alpha)))
+        img = Image.alpha_composite(img.convert("RGBA"), overlay).convert("RGB")
+        draw = ImageDraw.Draw(img)
+
+        # Use a concise thumbnail hook, not the entire video title. Long text
+        # is unreadable when a viewer is scrolling.
+        hook = self._thumbnail_hook(title)
         self._draw_bold_text(
-            draw, img, title.upper(),
+            draw, img, hook,
             width, height,
             style["text_color"],
             style["outline_color"],
@@ -195,6 +214,14 @@ class ThumbnailGenerator:
         # Save
         img.save(str(output_path), "JPEG", quality=95)
         return str(output_path)
+
+    @staticmethod
+    def _thumbnail_hook(title: str) -> str:
+        """Create a 2-5 word visual hook from a longer upload title."""
+        words = [word.strip(".,:;!?-—") for word in title.split()]
+        stop = {"how", "to", "the", "a", "an", "and", "your", "you", "can", "will", "this", "with", "from", "for"}
+        important = [word for word in words if word.lower() not in stop]
+        return " ".join(important[:5]).upper() or "WATCH THIS"
 
     def generate_batch(
         self,

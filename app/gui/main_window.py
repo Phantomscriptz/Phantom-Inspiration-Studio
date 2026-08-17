@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QFrame,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 
 from app.gui.widgets.sidebar import Sidebar
 from app.gui.widgets.dashboard import Dashboard
@@ -39,6 +39,19 @@ class MainWindow(QMainWindow):
         self._videos_today = 0
         self._uploaded = 0
         self._errors = 0
+
+        # ``auto_start`` is deliberately one-shot. It supports scheduled or
+        # unattended creator runs without turning every later app launch into
+        # an unexpected upload.
+        if self.settings.get("auto_start", False):
+            QTimer.singleShot(600, self._start_once_after_launch)
+
+    def _start_once_after_launch(self):
+        """Start one explicitly scheduled automation run after the UI opens."""
+        if self.worker and self.worker.isRunning():
+            return
+        self.settings.set("auto_start", False)
+        self._on_start()
 
     def create_ui(self):
         """Create the main user interface."""
@@ -207,6 +220,7 @@ class MainWindow(QMainWindow):
 
     def _on_pipeline_complete(self, total: int):
         self.dashboard.control_bar.reset()
+        self.dashboard.set_preview_status("Ready")
         self.dashboard.log(f"🏁 Pipeline complete! {total} videos produced.")
         self.statusBar().showMessage(f"Complete — {total} videos")
 

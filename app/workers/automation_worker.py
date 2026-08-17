@@ -7,6 +7,7 @@ the UI stays responsive while videos are being generated and uploaded.
 import json
 import time
 import random
+import re
 from pathlib import Path
 from datetime import datetime, timedelta
 from typing import Optional
@@ -317,6 +318,16 @@ class AutomationWorker(QThread):
         }
         render_segments = [hook_scene] + segments_data if script.hook else segments_data
         render_config = VideoConfig.for_short() if video_format in {"short", "vertical_short"} else VideoConfig.for_long()
+        effects_enabled = bool(self.config.get("video_effects_enabled", True))
+        render_config.ken_burns = effects_enabled and self.config.get("image_motion_effect", "slow_zoom_in") != "still"
+        render_config.image_motion_effect = self.config.get("image_motion_effect", "slow_zoom_in")
+        render_config.ken_burns_zoom = 1.0 + min(0.15, max(0.03, float(self.config.get("image_motion_strength", 0.08))))
+        # ``crossfade`` was the internal name before the Video Effects UI was
+        # introduced. Keep saved creator settings compatible with the new
+        # FFmpeg transition naming.
+        transition_effect = self.config.get("transition_effect", "fade")
+        render_config.transition_effect = "fade" if transition_effect == "crossfade" else transition_effect
+        render_config.transition_duration = float(self.config.get("transition_duration", 0.45)) if effects_enabled else 0.0
         selected_broll_name = Path(self.config.get("broll_selected_clip", "")).name
         selected_broll_path = Path("assets/stock_videos") / selected_broll_name
         using_single_broll = self.config.get("cinematic_broll", True) and selected_broll_name and selected_broll_path.is_file()
@@ -447,6 +458,7 @@ class AutomationWorker(QThread):
         thumb_path = self._thumbnail_gen.generate(
             title=script.title,
             niche=niche,
+            background_image=image_paths[0] if image_paths else None,
             output=str(output_dir / "thumbnail.jpg"),
         )
 
@@ -467,8 +479,13 @@ class AutomationWorker(QThread):
                     narration_excerpt=script.get_full_narration(),
                     extra_hashtags=metadata.hashtags or script.hashtags,
                 )
+                optimized["title"] = self._safe_title_for_runtime(
+                    optimized["title"], script.title, video_format
+                )
                 hashtags = optimized["hashtags"]
-                description = metadata.description.strip() or script.description.strip()
+                description = self._orchestrator.hashtag_optimizer.strip_hashtags(
+                    metadata.description.strip() or script.description.strip()
+                )
                 if hashtags and not all(tag in description for tag in hashtags):
                     description = f"{description}\n\n{' '.join(hashtags)}".strip()
                 description = self._orchestrator._append_affiliate_links(description, platform, niche)
@@ -529,6 +546,8 @@ class AutomationWorker(QThread):
 
         self.status_change.emit("Uploading...")
         self.progress_update.emit("Upload", 95)
+        attempted_upload = False
+        uploaded_any = False
 
         for platform in enabled_platforms:
             if self._stopped:
@@ -539,18 +558,16 @@ class AutomationWorker(QThread):
                 self.log_message.emit(f"⏭️ {platform}: {reason}")
                 continue
 
+            attempted_upload = True
             self.log_message.emit(f"📤 Uploading to {platform}...")
 
-            # Generate platform-specific metadata
-            try:
-                metadata = self._script_writer.generate_metadata(script, platform=platform)
-                meta_title = metadata.title
-                meta_desc = metadata.description
-                meta_tags = metadata.hashtags
-            except Exception:
-                meta_title = script.title
-                meta_desc = script.description
-                meta_tags = script.hashtags
+            # Upload precisely the package written for review in step 8.
+            # Regenerating it here made title/description/affiliate text drift
+            # after the creator had already reviewed the rendered package.
+            metadata = review_metadata.get(platform, {})
+            meta_title = metadata.get("title", script.title)
+            meta_desc = metadata.get("description", script.description)
+            meta_tags = metadata.get("tags") or metadata.get("hashtags") or script.hashtags
 
             result = self._orchestrator.upload_single(
                 platform=platform,
@@ -560,9 +577,15 @@ class AutomationWorker(QThread):
                 niche=niche,
                 thumbnail_path=thumb_path,
                 tags=meta_tags,
+                preformatted_metadata=True,
+                youtube_privacy=self.config.get("youtube_privacy", "unlisted"),
+                progress_callback=lambda message, platform=platform: self.log_message.emit(
+                    f"  📡 {platform}: {message}"
+                ),
             )
 
             if result.success:
+                uploaded_any = True
                 self.log_message.emit(f"  ✅ {platform}: {result.video_url or 'uploaded'}")
             else:
                 self.log_message.emit(f"  ❌ {platform}: {result.error}")
@@ -574,6 +597,11 @@ class AutomationWorker(QThread):
                 self._sleep_or_stop(random.randint(5, 15))
 
         self.progress_update.emit("Done", 100)
+        if attempted_upload and not uploaded_any:
+            raise RuntimeError(
+                "Video rendered successfully, but no enabled platform accepted the upload. "
+                f"The review package is preserved at {output_dir} for a safe retry."
+            )
         self.log_message.emit(f"✅ Video #{self._videos_produced + 1} complete!\n")
 
     # ------------------------------------------------------------------
@@ -645,6 +673,20 @@ class AutomationWorker(QThread):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _safe_title_for_runtime(title: str, fallback: str, video_format: str) -> str:
+        """Do not let short-form metadata imply a longer video runtime."""
+        if video_format not in {"short", "vertical_short", "landscape_short"}:
+            return title
+        without_runtime = re.sub(
+            r"\b\d+\s*(?:-|–|—|\s)?(?:minute|min|second|sec)s?\b",
+            "",
+            title,
+            flags=re.IGNORECASE,
+        )
+        cleaned = re.sub(r"\s{2,}", " ", without_runtime).strip(" -–—:")
+        return cleaned or fallback
 
     def _sleep_or_stop(self, seconds: int):
         """Sleep but check for stop/pause signals."""

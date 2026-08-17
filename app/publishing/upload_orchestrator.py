@@ -11,7 +11,7 @@ This is the main entry point for uploading videos. It handles:
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Optional
 from dataclasses import dataclass
 
 from app.scheduler.rate_limiter import RateLimiter, PLATFORM_RULES
@@ -85,6 +85,9 @@ class UploadOrchestrator:
         thumbnail_path: Optional[str] = None,
         tags: Optional[list[str]] = None,
         schedule_time: Optional[str] = None,
+        preformatted_metadata: bool = False,
+        youtube_privacy: str = "unlisted",
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> dict[str, UploadResult]:
         """
         Upload a video to multiple platforms.
@@ -103,27 +106,51 @@ class UploadOrchestrator:
                 )
                 continue
 
-            # Optimize metadata for this platform
-            optimized = self.hashtag_optimizer.optimize(
-                platform=platform,
-                niche=niche,
-                title=title,
-                narration_excerpt=description,
-                extra_hashtags=tags,
-            )
-            optimized["description"] = self._append_affiliate_links(
-                optimized["description"], platform, niche
-            )
+            # A reviewed package is the publishing source of truth.  Rewriting
+            # it here used to make the uploaded title/description differ from
+            # the one the creator had approved.
+            if preformatted_metadata:
+                optimized = {
+                    "title": self.hashtag_optimizer.strip_hashtags(title).strip(),
+                    "description": description.strip(),
+                    "hashtags": [str(tag).lstrip("#") for tag in (tags or [])],
+                }
+                if "Creator-tool disclosure:" not in optimized["description"]:
+                    optimized["description"] = self._append_affiliate_links(
+                        optimized["description"], platform, niche
+                    )
+            else:
+                optimized = self.hashtag_optimizer.optimize(
+                    platform=platform,
+                    niche=niche,
+                    title=title,
+                    narration_excerpt=description,
+                    extra_hashtags=tags,
+                )
+                optimized["description"] = self._append_affiliate_links(
+                    optimized["description"], platform, niche
+                )
 
             # Try upload
             try:
                 uploader = self._get_uploader(platform)
+                upload_kwargs = {
+                    "video_path": video_path,
+                    "title": optimized["title"],
+                    "description": optimized["description"],
+                    "tags": optimized["hashtags"],
+                    # YouTube's custom-thumbnail endpoint is for standard
+                    # videos. Shorts use a selected video frame instead, so
+                    # never send thumbnail.jpg for a Shorts upload.
+                    "thumbnail_path": None if platform == "youtube_shorts" else thumbnail_path,
+                }
+                # YouTube's official API does not use Studio's browser upload
+                # defaults. Pass an explicit creator-safe visibility instead.
+                if platform in {"youtube", "youtube_long", "youtube_shorts"}:
+                    upload_kwargs["privacy"] = youtube_privacy
+                    upload_kwargs["progress_callback"] = progress_callback
                 result = uploader.upload(
-                    video_path=video_path,
-                    title=optimized["title"],
-                    description=optimized["description"],
-                    tags=optimized["hashtags"],
-                    thumbnail_path=thumbnail_path,
+                    **upload_kwargs,
                 )
 
                 if result.success:
@@ -151,6 +178,9 @@ class UploadOrchestrator:
         niche: str,
         thumbnail_path: Optional[str] = None,
         tags: Optional[list[str]] = None,
+        preformatted_metadata: bool = False,
+        youtube_privacy: str = "unlisted",
+        progress_callback: Optional[Callable[[str], None]] = None,
     ) -> UploadResult:
         """Upload to a single platform."""
         results = self.upload(
@@ -161,6 +191,9 @@ class UploadOrchestrator:
             platforms=[platform],
             thumbnail_path=thumbnail_path,
             tags=tags,
+            preformatted_metadata=preformatted_metadata,
+            youtube_privacy=youtube_privacy,
+            progress_callback=progress_callback,
         )
         return results.get(platform, UploadResult(platform=platform, success=False, error="Unknown error"))
 
@@ -229,11 +262,14 @@ class UploadOrchestrator:
         links = [
             item for item in self.affiliate_links
             if item.get("referral_url", "").startswith(("https://", "http://"))
-            and niche in item.get("niches", [])
+            # An empty niche list means the creator deliberately enabled this
+            # resource for the channel as a whole.  A populated list remains
+            # an explicit niche restriction.
+            and (not item.get("niches") or niche in item.get("niches", []))
         ]
         if not links:
             return description
-        lines = ["", "—" * 20, "Disclosure: Some links below may be affiliate links. I may earn a commission at no extra cost to you."]
+        lines = ["", "—" * 20, "Creator-tool disclosure: Some links below may be affiliate links. I may earn a commission at no extra cost to you."]
         lines.extend(f"{item.get('name', 'Recommended resource').replace('_', ' ').title()}: {item['referral_url']}" for item in links)
         return f"{description.rstrip()}\n" + "\n".join(lines)
 
