@@ -88,6 +88,23 @@ class PlatformTab(QWidget):
         self.status_label.setWordWrap(True)
         settings_layout.addWidget(self.status_label)
 
+        # Direct Post is a creator action, not a background toggle.  TikTok
+        # review requires that the app visibly asks for permission before a
+        # post is submitted, and this confirmation is intentionally reset when
+        # the platform form is rebuilt.
+        self.tiktok_post_approval = None
+        if self.platform_key == "tiktok":
+            self.tiktok_post_approval = QCheckBox(
+                "I reviewed this TikTok post and approve a private AI-labeled upload"
+            )
+            self.tiktok_post_approval.setToolTip(
+                "Required only when Generate-only is off. TikTok posts begin as private during app review."
+            )
+            self.tiktok_post_approval.toggled.connect(
+                lambda checked: self.settings.set("tiktok_creator_approved", checked)
+            )
+            settings_layout.addWidget(self.tiktok_post_approval)
+
         layout.addWidget(settings_group)
 
         # API Status group
@@ -219,6 +236,8 @@ class PlatformTab(QWidget):
 
         self.enabled_cb.setChecked(enabled)
         self.max_per_day.setValue(max_day)
+        if self.tiktok_post_approval:
+            self.tiktok_post_approval.setChecked(self.settings.get("tiktok_creator_approved", False))
 
     def _on_enabled_toggled(self, checked: bool):
         self.settings.set(f"platform_limits.{self.platform_key}.enabled", checked)
@@ -340,6 +359,8 @@ class PlatformTab(QWidget):
     def save(self):
         self.settings.set(f"platform_limits.{self.platform_key}.enabled", self.enabled_cb.isChecked())
         self.settings.set(f"platform_limits.{self.platform_key}.max_per_day", self.max_per_day.value())
+        if self.tiktok_post_approval:
+            self.settings.set("tiktok_creator_approved", self.tiktok_post_approval.isChecked())
 
     def update_status(self, status_text: str, is_ok: bool = False):
         color = "#22c55e" if is_ok else "#888"

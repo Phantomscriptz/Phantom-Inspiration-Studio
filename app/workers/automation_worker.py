@@ -579,6 +579,7 @@ class AutomationWorker(QThread):
                 tags=meta_tags,
                 preformatted_metadata=True,
                 youtube_privacy=self.config.get("youtube_privacy", "unlisted"),
+                tiktok_creator_approved=self.config.get("tiktok_creator_approved", False),
                 progress_callback=lambda message, platform=platform: self.log_message.emit(
                     f"  📡 {platform}: {message}"
                 ),

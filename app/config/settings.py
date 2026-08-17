@@ -106,6 +106,9 @@ class SettingsManager:
             # defaults. Keep new automated uploads private to the creator's
             # review link unless they deliberately choose another visibility.
             "youtube_privacy": "unlisted",
+            # TikTok Direct Post must remain a deliberate creator action.  It
+            # defaults off and is reset after each run by the platform tab.
+            "tiktok_creator_approved": False,
             "require_source_review": True,
             "content_similarity_threshold": 0.72,
         }
@@ -202,6 +205,7 @@ class SettingsManager:
             "youtube_shorts_niche": self.get("youtube_shorts_niche", "motivational"),
             "require_review_before_publish": self.get("require_review_before_publish", True),
             "youtube_privacy": self.get("youtube_privacy", "unlisted"),
+            "tiktok_creator_approved": self.get("tiktok_creator_approved", False),
             "max_videos_per_run": self.get("max_videos_per_run"),
             "gap_between_videos_min": self.get("gap_between_videos_min"),
             "gap_between_videos_max": self.get("gap_between_videos_max"),

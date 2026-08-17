@@ -87,6 +87,7 @@ class UploadOrchestrator:
         schedule_time: Optional[str] = None,
         preformatted_metadata: bool = False,
         youtube_privacy: str = "unlisted",
+        tiktok_creator_approved: bool = False,
         progress_callback: Optional[Callable[[str], None]] = None,
     ) -> dict[str, UploadResult]:
         """
@@ -149,6 +150,12 @@ class UploadOrchestrator:
                 if platform in {"youtube", "youtube_long", "youtube_shorts"}:
                     upload_kwargs["privacy"] = youtube_privacy
                     upload_kwargs["progress_callback"] = progress_callback
+                elif platform == "tiktok":
+                    # TikTok Direct Post requires a creator-visible approval
+                    # and an AI-generated-content disclosure for this pipeline.
+                    upload_kwargs["privacy_level"] = "SELF_ONLY"
+                    upload_kwargs["creator_approved"] = tiktok_creator_approved
+                    upload_kwargs["is_aigc"] = True
                 result = uploader.upload(
                     **upload_kwargs,
                 )
@@ -180,6 +187,7 @@ class UploadOrchestrator:
         tags: Optional[list[str]] = None,
         preformatted_metadata: bool = False,
         youtube_privacy: str = "unlisted",
+        tiktok_creator_approved: bool = False,
         progress_callback: Optional[Callable[[str], None]] = None,
     ) -> UploadResult:
         """Upload to a single platform."""
@@ -193,6 +201,7 @@ class UploadOrchestrator:
             tags=tags,
             preformatted_metadata=preformatted_metadata,
             youtube_privacy=youtube_privacy,
+            tiktok_creator_approved=tiktok_creator_approved,
             progress_callback=progress_callback,
         )
         return results.get(platform, UploadResult(platform=platform, success=False, error="Unknown error"))
