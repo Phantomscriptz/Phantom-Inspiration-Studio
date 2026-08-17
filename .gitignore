@@ -28,6 +28,10 @@ build/
 # Cache
 cache/
 
+# Locally generated voice previews and private test harnesses.
+assets/voice_samples/exact/
+scripts/run_youtube_shorts_live_test.py
+
 # Exports
 exports/
 
