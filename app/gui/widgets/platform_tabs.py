@@ -279,7 +279,10 @@ class PlatformTab(QWidget):
             else:
                 self.update_status("Use the setup guide; this publisher is not implemented yet", False)
         except Exception as exc:
-                self.update_status(f"Authorization failed: {type(exc).__name__}. See the setup guide for details.", False)
+            message = type(exc).__name__
+            if message == "RefreshError":
+                message = "Saved Google permission expired — click Authorize and approve the Google prompt"
+            self.update_status(f"Authorization failed: {message}. See the setup guide for details.", False)
 
     def _sync_audience(self):
         """Ask the owning tab panel to perform a non-blocking metric refresh."""
@@ -587,10 +590,6 @@ class PlatformTabs(QTabWidget):
             PlatformTab._compact_button(guide_btn)
             guide_btn.clicked.connect(lambda checked, k=key: self._open_guide(k))
             tab.add_extra_button(guide_btn)
-
-            # Update the info label for all platforms
-            tab.api_info_label.setText("Click Authorize after completing setup")
-            tab.api_info_label.setStyleSheet("color: #888; font-size: 12px;")
 
     def _open_guide(self, platform_key: str):
         """Open the platform Setup Instructions dialog."""

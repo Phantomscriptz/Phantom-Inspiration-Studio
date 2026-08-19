@@ -23,6 +23,7 @@ import requests
 
 try:
     from google.oauth2.credentials import Credentials
+    from google.auth.exceptions import RefreshError
     from google_auth_oauthlib.flow import InstalledAppFlow
     from google.auth.transport.requests import Request
     from googleapiclient.discovery import build
@@ -101,11 +102,19 @@ class YouTubeUploader:
             if set(SCOPES).issubset(granted_scopes):
                 creds = Credentials.from_authorized_user_file(str(self.token_path), SCOPES)
 
-        # Refresh or get new credentials
+        # Refresh or get new credentials.  A Google account change can revoke
+        # the existing refresh token; in that normal case we must fall back to
+        # a fresh, user-approved OAuth flow rather than leaving the desktop
+        # app unable to upload forever.
         if not creds or not creds.valid:
+            refresh_failed = False
             if creds and creds.expired and creds.refresh_token:
-                creds.refresh(Request())
-            else:
+                try:
+                    creds.refresh(Request())
+                except RefreshError:
+                    refresh_failed = True
+
+            if not creds or not creds.valid or refresh_failed:
                 if not self.client_secret_path.exists():
                     raise FileNotFoundError(
                         f"YouTube client secret not found at: {self.client_secret_path}\n"
