@@ -445,7 +445,12 @@ class PlatformTabs(QTabWidget):
 
         # Brand icons make the destination clear without relying on emoji
         # rendering, which varies between Windows installations.
-        icon_dir = Path("assets/platform_icons")
+        # Resolve from the project package rather than the process working
+        # directory. A packaged build may omit optional icons, so only create
+        # a QIcon when the source asset is actually present; Qt otherwise
+        # emits one warning per unavailable SVG on every startup.
+        project_root = Path(__file__).resolve().parents[3]
+        icon_dir = project_root / "assets" / "platform_icons"
         # Compact names keep every destination visible on a standard laptop
         # window. The full destination name remains available as a tooltip.
         platforms = [
@@ -464,7 +469,9 @@ class PlatformTabs(QTabWidget):
         for key, short_name, icon_name, full_name in platforms:
             tab = PlatformTab(key, full_name, settings)
             tab.audience_sync_requested.connect(self.sync_youtube_audience)
-            index = self.addTab(tab, QIcon(str(icon_dir / icon_name)), short_name)
+            icon_path = icon_dir / icon_name
+            icon = QIcon(str(icon_path)) if icon_path.is_file() else QIcon()
+            index = self.addTab(tab, icon, short_name)
             self.setTabToolTip(index, full_name)
             self.tabs[key] = tab
 
