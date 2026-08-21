@@ -205,6 +205,22 @@ MEDITATION_NICHES = {
 }
 
 
+def short_scene_count(duration_seconds: int) -> int:
+    """Return the number of narrated scenes for a vertical short.
+
+    The opening hook receives its own visual in the renderer, so this yields
+    8--12 visuals in total.  The count follows pacing instead of being a
+    random number that could break narration, subtitles, or scene timing.
+    """
+    if duration_seconds <= 45:
+        return 7
+    if duration_seconds <= 60:
+        return 8
+    if duration_seconds <= 75:
+        return 9
+    return 11
+
+
 # ============================================================================
 # SHORT-FORM SCRIPT PROMPT (15-90 seconds)
 # ============================================================================
@@ -224,7 +240,10 @@ def short_form_script_prompt(
     # second.  A lower budget creates a video whose declared scene lengths
     # look correct but whose actual audio finishes much too early.
     target_words = max(70, round(duration_seconds * 2.25))
-    segment_count = max(4, duration_seconds // 12)
+    # One extra hook visual is added by the renderer.  This gives Shorts an
+    # intentional 8--12 visual rhythm: enough movement to retain attention,
+    # without becoming a frantic slideshow.
+    segment_count = short_scene_count(duration_seconds)
     words_per_segment = max(11, round((target_words - 14) / segment_count))
 
     return f"""Write a {duration_seconds}-second faceless video script about: "{topic}"

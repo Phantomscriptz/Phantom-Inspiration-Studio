@@ -24,6 +24,18 @@ import shutil
 VOICE_SAMPLE_DIR = Path("assets/voice_samples/exact")
 
 
+class NoWheelComboBox(QComboBox):
+    """Avoid silently changing saved settings while the page is scrolled."""
+
+    def wheelEvent(self, event):
+        # A focused combo box can still be intentionally changed with the
+        # wheel. Everywhere else, let the parent scroll area handle it.
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
+
+
 def voice_sample_path(voice_id: str) -> Path:
     """Return the cached, exact preview for a configured online voice."""
     safe_name = voice_id.replace("/", "_").replace("\\", "_")
@@ -123,8 +135,8 @@ class NicheSetupDialog(QDialog):
                  selected_subniches: dict[str, list[str]] | None = None, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Content Niches Setup")
-        self.setMinimumWidth(620)
-        self.setMinimumHeight(680)
+        self.setMinimumSize(860, 730)
+        self.resize(940, 820)
         self._selected_subniches = selected_subniches or {}
         self.setStyleSheet("""
             QDialog { background: #1e1e1e; color: #ddd; }
@@ -161,6 +173,8 @@ class NicheSetupDialog(QDialog):
         # Scrollable niche checkboxes
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setMinimumHeight(235)
         scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
 
         scroll_content = QWidget()
@@ -187,8 +201,8 @@ class NicheSetupDialog(QDialog):
         self.subheading.setStyleSheet("font-size: 13px; font-weight: bold; color: #5B9BD5;")
         layout.addWidget(self.subheading)
         self.subniche_tabs = QTabWidget()
-        self.subniche_tabs.setMinimumHeight(260)
-        self.subniche_tabs.setMaximumHeight(320)
+        self.subniche_tabs.setMinimumHeight(300)
+        self.subniche_tabs.setMaximumHeight(390)
         self._subniche_checks: dict[str, dict[str, QCheckBox]] = {}
         layout.addWidget(self.subniche_tabs)
 
@@ -349,7 +363,7 @@ class ContentSettingsPanel(QWidget):
 
         voice_row = QHBoxLayout()
         voice_row.addWidget(QLabel("Voice:"))
-        self.voice_combo = QComboBox()
+        self.voice_combo = NoWheelComboBox()
         self.voice_combo.setStyleSheet(self._voice_combo_style())
         self.voice_combo.setMinimumWidth(430)
         voice_view = QListView(self.voice_combo)
@@ -424,7 +438,7 @@ class ContentSettingsPanel(QWidget):
         visuals_layout.addWidget(self.broll_library_status)
         broll_picker_row = QHBoxLayout()
         broll_picker_row.addWidget(QLabel("Selected B-roll clip:"))
-        self.broll_clip_combo = QComboBox()
+        self.broll_clip_combo = NoWheelComboBox()
         self.broll_clip_combo.setStyleSheet(self._combo_style())
         self.broll_clip_combo.setMinimumWidth(360)
         broll_picker_row.addWidget(self.broll_clip_combo, 1)
@@ -450,7 +464,7 @@ class ContentSettingsPanel(QWidget):
         effects_layout.addWidget(self.effects_note)
         effect_row = QHBoxLayout()
         effect_row.addWidget(QLabel("Image motion:"))
-        self.image_motion_combo = QComboBox()
+        self.image_motion_combo = NoWheelComboBox()
         self.image_motion_combo.setStyleSheet(self._combo_style())
         self.image_motion_combo.addItem("Slow push in (recommended)", "slow_zoom_in")
         self.image_motion_combo.addItem("Slow pull back", "slow_zoom_out")
@@ -459,7 +473,7 @@ class ContentSettingsPanel(QWidget):
         effects_layout.addLayout(effect_row)
         strength_row = QHBoxLayout()
         strength_row.addWidget(QLabel("Motion amount:"))
-        self.image_motion_strength = QComboBox()
+        self.image_motion_strength = NoWheelComboBox()
         self.image_motion_strength.setStyleSheet(self._combo_style())
         self.image_motion_strength.addItem("Subtle — 6% (calm/meditation)", 0.06)
         self.image_motion_strength.addItem("Balanced — 8% (recommended)", 0.08)
@@ -469,7 +483,7 @@ class ContentSettingsPanel(QWidget):
         effects_layout.addLayout(strength_row)
         transition_row = QHBoxLayout()
         transition_row.addWidget(QLabel("Scene transition:"))
-        self.transition_combo = QComboBox()
+        self.transition_combo = NoWheelComboBox()
         self.transition_combo.setStyleSheet(self._combo_style())
         self.transition_combo.addItem("Soft dissolve (recommended)", "fade")
         self.transition_combo.addItem("Fade through black", "fadeblack")
@@ -500,7 +514,7 @@ class ContentSettingsPanel(QWidget):
 
         model_row = QHBoxLayout()
         model_row.addWidget(QLabel("Model:"))
-        self.model_combo = QComboBox()
+        self.model_combo = NoWheelComboBox()
         self.model_combo.setStyleSheet(self._combo_style())
         self.model_combo.addItems([
             "qwen2.5:7b (Recommended — fast & free)",
