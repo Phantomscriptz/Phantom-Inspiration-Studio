@@ -12,6 +12,7 @@ import json
 from datetime import datetime
 
 from app.config.settings import SettingsManager
+from app.gui.widgets.input_controls import NoWheelComboBox
 from app.services.monetization import program_for, progress_text
 
 
@@ -81,6 +82,26 @@ class PlatformTab(QWidget):
         row1.addWidget(self.max_per_day)
         row1.addStretch()
         settings_layout.addLayout(row1)
+
+        # Both YouTube format tabs use the same official YouTube channel and
+        # token. Visibility is therefore intentionally shared between them.
+        self.youtube_privacy_combo = None
+        if self.platform_key in {"youtube_long", "youtube_shorts"}:
+            privacy_row = QHBoxLayout()
+            privacy_row.addWidget(QLabel("YouTube upload visibility:"))
+            self.youtube_privacy_combo = NoWheelComboBox()
+            self.youtube_privacy_combo.addItem("Public", "public")
+            self.youtube_privacy_combo.addItem("Unlisted", "unlisted")
+            self.youtube_privacy_combo.addItem("Private", "private")
+            self.youtube_privacy_combo.setToolTip(
+                "Shared by YouTube Videos and YouTube Shorts. Public posts once YouTube finishes processing; use Unlisted while testing."
+            )
+            self.youtube_privacy_combo.currentIndexChanged.connect(
+                lambda _index: self.settings.set("youtube_privacy", self.youtube_privacy_combo.currentData())
+            )
+            privacy_row.addWidget(self.youtube_privacy_combo)
+            privacy_row.addStretch()
+            settings_layout.addLayout(privacy_row)
 
         # Status info
         self.status_label = QLabel("Status: Not configured")
@@ -236,6 +257,10 @@ class PlatformTab(QWidget):
 
         self.enabled_cb.setChecked(enabled)
         self.max_per_day.setValue(max_day)
+        if self.youtube_privacy_combo:
+            privacy = str(self.settings.get("youtube_privacy", "unlisted")).lower()
+            index = self.youtube_privacy_combo.findData(privacy)
+            self.youtube_privacy_combo.setCurrentIndex(index if index >= 0 else 1)
         if self.tiktok_post_approval:
             self.tiktok_post_approval.setChecked(self.settings.get("tiktok_creator_approved", False))
 

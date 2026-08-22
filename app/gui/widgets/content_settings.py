@@ -11,6 +11,7 @@ from PySide6.QtMultimedia import QMediaPlayer, QAudioOutput
 from PySide6.QtGui import QDesktopServices
 
 from app.config.settings import SettingsManager
+from app.gui.widgets.input_controls import NoWheelComboBox
 from app.ai.prompts.script_prompts import NICHES, OPTIONAL_SUBNICHES
 from app.ai.voice.edge_tts_provider import ENGLISH_VOICES
 from app.ai.providers.ollama_client import get_client
@@ -22,18 +23,6 @@ import shutil
 
 
 VOICE_SAMPLE_DIR = Path("assets/voice_samples/exact")
-
-
-class NoWheelComboBox(QComboBox):
-    """Avoid silently changing saved settings while the page is scrolled."""
-
-    def wheelEvent(self, event):
-        # A focused combo box can still be intentionally changed with the
-        # wheel. Everywhere else, let the parent scroll area handle it.
-        if self.hasFocus():
-            super().wheelEvent(event)
-        else:
-            event.ignore()
 
 
 def voice_sample_path(voice_id: str) -> Path:

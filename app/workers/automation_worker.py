@@ -488,6 +488,9 @@ class AutomationWorker(QThread):
                 )
                 if hashtags and not all(tag in description for tag in hashtags):
                     description = f"{description}\n\n{' '.join(hashtags)}".strip()
+                description = self._append_source_references(
+                    description, script.references, platform
+                )
                 description = self._orchestrator._append_affiliate_links(description, platform, niche)
                 review_metadata[platform] = {
                     "title": optimized["title"],
@@ -501,7 +504,10 @@ class AutomationWorker(QThread):
                 self.log_message.emit(f"⚠️ Metadata fallback for {platform}: {exc}")
                 review_metadata[platform] = {
                     "title": script.title,
-                    "description": self._orchestrator._append_affiliate_links(script.description, platform),
+                    "description": self._orchestrator._append_affiliate_links(
+                        self._append_source_references(script.description, script.references, platform),
+                        platform,
+                    ),
                     "hashtags": script.hashtags,
                     "tags": script.tags,
                     "thumbnail_prompt": "",
@@ -674,6 +680,31 @@ class AutomationWorker(QThread):
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _append_source_references(description: str, references: list[dict], platform: str) -> str:
+        """Add concise, reviewable citations to descriptions that support links.
+
+        Factual scripts already fail the editorial gate when their reference
+        objects lack a title or a valid URL.  This makes those same citations
+        visible to viewers on destinations where a longer description is
+        useful, without cluttering short-form captions on every platform.
+        """
+        if platform not in {"youtube", "youtube_long", "youtube_shorts", "rumble", "facebook"}:
+            return (description or "").strip()
+        valid = []
+        for item in references or []:
+            if not isinstance(item, dict):
+                continue
+            title = str(item.get("title", "")).strip()
+            url = str(item.get("url", "")).strip()
+            if title and url.startswith(("https://", "http://")):
+                valid.append((title, url))
+        if not valid:
+            return (description or "").strip()
+        lines = ["Sources / further reading:"]
+        lines.extend(f"- {title}: {url}" for title, url in valid[:5])
+        return f"{(description or '').rstrip()}\n\n" + "\n".join(lines)
 
     @staticmethod
     def _safe_title_for_runtime(title: str, fallback: str, video_format: str) -> str:
